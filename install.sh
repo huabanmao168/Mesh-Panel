@@ -113,6 +113,7 @@ do_install() {
   ok "Python 依赖装好"
 
   write_systemd_unit
+  install_shortcut
   systemctl daemon-reload
   systemctl enable -q ${SERVICE_NAME}.service
   systemctl restart ${SERVICE_NAME}.service
@@ -135,8 +136,19 @@ do_install() {
   echo "  访问面板: ${c_cyan}http://${pub_ip}:${port}${c_reset}"
   echo "  首次访问设置管理员密码"
   echo
-  echo "  本地再次运行此菜单: ${c_cyan}bash $INSTALL_DIR/install.sh${c_reset}"
+  echo "  以后调出菜单只需输入: ${c_cyan}mesh${c_reset}"
   echo "==========================================="
+}
+
+install_shortcut() {
+  # /usr/local/bin/mesh -> /opt/mesh-panel/install.sh,让用户输入 mesh 即可打开菜单
+  local target="/usr/local/bin/mesh"
+  cat > "$target" <<EOF
+#!/usr/bin/env bash
+exec bash ${INSTALL_DIR}/install.sh "\$@"
+EOF
+  chmod +x "$target"
+  ok "已创建快捷命令: mesh"
 }
 
 write_systemd_unit() {
@@ -201,6 +213,7 @@ do_update() {
 
   # 重写 systemd unit(可能新版换了启动命令)
   write_systemd_unit
+  install_shortcut
   systemctl daemon-reload
 
   log "重启服务..."
@@ -229,6 +242,7 @@ do_uninstall() {
 
   log "删除安装目录..."
   rm -rf "$INSTALL_DIR"
+  rm -f /usr/local/bin/mesh
 
   ok "MeshPanel 已卸载干净"
 }

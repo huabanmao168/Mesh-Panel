@@ -48,19 +48,19 @@ bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main
 
 首次访问浏览器设置管理员密码即可。
 
-安装完成后,以后再开菜单只需:
+安装完成后,以后调出菜单只需输入:
 
 ```bash
-bash /opt/mesh-panel/install.sh
+mesh
 ```
 
 也支持直接传参非交互执行:
 
 ```bash
-bash /opt/mesh-panel/install.sh update     # 更新
-bash /opt/mesh-panel/install.sh restart    # 重启
-bash /opt/mesh-panel/install.sh logs       # 实时日志
-bash /opt/mesh-panel/install.sh uninstall  # 卸载
+mesh update     # 更新
+mesh restart    # 重启
+mesh logs       # 实时日志
+mesh uninstall  # 卸载
 ```
 
 ## 常用命令
