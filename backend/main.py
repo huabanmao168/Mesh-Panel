@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from config import BASE_DIR
 from database import init_db
 from api.nodes import router as nodes_router
 from api.settings import router as settings_router
@@ -59,3 +61,24 @@ app.include_router(nodes_router)
 app.include_router(settings_router)
 app.include_router(ss_router)
 app.include_router(ws_router)
+
+
+# --- 前端静态文件服务（生产模式）---------------------------------
+# 开发时前端跑 vite :5173,这段不会命中(因为浏览器直连 5173)。
+# 生产时 install.sh 会把 npm run build 产物放到 frontend/dist/,
+# 由 FastAPI 同端口 serve,前端和 API/WS 同源,agent 走同一端口回连。
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        # /api/* /ws /assets/* 已被前面的路由吃掉,这里只接 SPA 路由
+        # 优先返回 dist 下真实存在的文件(favicon.ico, robots.txt 等),
+        # 否则 fallback 到 index.html 让 Vue Router 接管
+        candidate = FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND_DIST / "index.html")
