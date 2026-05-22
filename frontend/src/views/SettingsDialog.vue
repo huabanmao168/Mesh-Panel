@@ -1,32 +1,31 @@
 <template>
-  <el-dialog v-model="visible" title="系统设置" width="640px" @open="load">
+  <el-drawer v-model="visible" title="系统设置" size="580px" @open="load">
     <el-form :model="form" label-width="120px" v-loading="loading" class="settings-form">
       <!-- ===== 分区:面板访问 ===== -->
       <div class="section-title">面板访问</div>
 
       <el-form-item label="监听 IP">
         <el-input v-model="form.panel_host" placeholder="0.0.0.0" />
-        <div class="hint">面板进程绑定的 IP。<code>0.0.0.0</code> 监听所有网卡,<code>127.0.0.1</code> 仅本机。</div>
       </el-form-item>
 
       <el-form-item label="监听端口">
-        <el-input-number v-model="form.panel_port" :min="1" :max="65535" controls-position="right" style="width: 160px" />
-        <span class="port-hint" v-if="form.panel_port < 1024">需要 root 或 CAP_NET_BIND_SERVICE</span>
-        <div class="hint">面板 HTTP + WebSocket(agent 回连)共用此端口。改完需要 <code>systemctl restart meshpanel</code> 生效。</div>
+        <el-input
+          v-model.number="form.panel_port"
+          type="number"
+          min="1"
+          max="65535"
+          placeholder="8000"
+          style="width: 110px"
+        />
+        <span class="port-hint" v-if="form.panel_port < 1024">&lt; 1024 需 root</span>
       </el-form-item>
 
       <el-form-item label="绑定域名">
-        <el-input v-model="form.panel_domain" placeholder="panel.example.com  留空=不强制" />
-        <div class="hint">
-          填了之后,**只能通过该域名访问面板**,用 IP 或别的域名访问会被拒(403)。
-          <code>/api/health</code> 和本机请求豁免。Agent WS 凭 token 鉴权不受影响。
-        </div>
+        <el-input v-model="form.panel_domain" placeholder="留空 = 不限制" />
       </el-form-item>
 
       <el-form-item label="启用 HTTPS">
         <el-switch v-model="form.tls_enabled_bool" />
-        <span class="state-text">{{ form.tls_enabled_bool ? '已启用' : '已关闭' }}</span>
-        <div class="hint">启用后由面板直接 serve HTTPS。需先上传证书。</div>
       </el-form-item>
 
       <el-form-item label="证书 / 私钥" v-if="form.tls_enabled_bool || form.tls_cert_path">
@@ -35,7 +34,7 @@
             <el-tag size="small" type="success">已上传</el-tag>
             <code>{{ form.tls_cert_path }}</code>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px">
+          <div :class="['cert-actions', { 'has-info': !!form.tls_cert_path }]">
             <el-upload
               ref="certUpload"
               :auto-upload="false"
@@ -44,7 +43,7 @@
               accept=".pem,.crt,.cer"
             >
               <el-button size="small">
-                {{ certFile ? `证书: ${certFile.name}` : '选择证书 (fullchain.pem)' }}
+                {{ certFile ? `证书: ${certFile.name}` : '选择证书' }}
               </el-button>
             </el-upload>
             <el-upload
@@ -54,7 +53,7 @@
               accept=".pem,.key"
             >
               <el-button size="small">
-                {{ keyFile ? `私钥: ${keyFile.name}` : '选择私钥 (privkey.pem)' }}
+                {{ keyFile ? `私钥: ${keyFile.name}` : '选择私钥' }}
               </el-button>
             </el-upload>
             <el-button
@@ -66,12 +65,11 @@
               @click="uploadCert"
             >上传</el-button>
           </div>
-          <div class="hint">PEM 格式。私钥会以 0600 权限存到 <code>data/certs/</code>。</div>
         </div>
       </el-form-item>
 
       <!-- ===== 分区:Agent 回连 ===== -->
-      <div class="section-title" style="margin-top: 8px">Agent 回连</div>
+      <div class="section-title">Agent 回连</div>
 
       <el-form-item label="回连地址">
         <el-input v-model="form.agent_endpoint" :placeholder="derivedEndpoint || 'ws://1.2.3.4:8000'">
@@ -79,11 +77,7 @@
             <el-button @click="useDerived" :disabled="!derivedEndpoint">用推荐值</el-button>
           </template>
         </el-input>
-        <div class="hint">
-          节点 agent 拨号回主控的 WS 地址,**和面板共用同一端口**。
-          根据上面的配置,推荐值: <code>{{ derivedEndpoint || '—' }}</code><br>
-          改完点「保存并推送到所有节点」让旧节点切到新地址。
-        </div>
+        <div class="hint" v-if="derivedEndpoint">推荐:<code>{{ derivedEndpoint }}</code></div>
       </el-form-item>
     </el-form>
 
@@ -94,7 +88,7 @@
         保存并推送到所有节点
       </el-button>
     </template>
-  </el-dialog>
+  </el-drawer>
 </template>
 
 <script setup>
@@ -174,7 +168,7 @@ async function uploadCert() {
     form.tls_key_path = resp.data.tls_key_path
     certFile.value = null
     keyFile.value = null
-    ElMessage.success('证书已上传,保存设置后重启服务生效')
+    ElMessage.success('证书已上传')
   } catch (e) {
     ElMessage.error(`上传失败: ${e.response?.data?.error || e.message}`)
   } finally {
@@ -193,7 +187,7 @@ async function save(thenPush) {
       tls_enabled: form.tls_enabled_bool ? '1' : '0',
     }
     await settingsApi.update(payload)
-    ElMessage.success('已保存(端口/TLS/域名改动需重启服务生效:systemctl restart meshpanel)')
+    ElMessage.success('已保存')
     emit('saved')
   } catch (e) {
     ElMessage.error(`保存失败: ${e.response?.data?.error || e.message}`)
@@ -251,15 +245,16 @@ async function pushAll() {
 .settings-form { padding: 4px 8px 0 0; }
 
 .section-title {
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
-  color: #6366f1;
-  letter-spacing: 0.5px;
-  padding: 10px 0 8px 4px;
-  border-bottom: 1px solid #eef0f4;
-  margin-bottom: 14px;
-  text-transform: uppercase;
+  color: #1f2937;
+  padding: 0 0 12px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #6366f1;
+  display: inline-block;
+  min-width: 80px;
 }
+.section-title:not(:first-child) { margin-top: 22px; }
 
 .hint {
   font-size: 12px;
@@ -294,10 +289,16 @@ async function pushAll() {
   align-items: center;
   gap: 8px;
   font-size: 12px;
+  margin-bottom: 6px;
 }
 .cert-info code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #6b7280;
   font-size: 11.5px;
+}
+.cert-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 </style>

@@ -183,23 +183,47 @@
     </div>
 
     <!-- 新增/编辑 -->
-    <el-dialog
+    <el-drawer
       v-model="dialogOpen"
       :title="editingId ? '编辑节点' : '添加节点'"
-      width="min(520px, 92vw)"
+      :size="drawerSize"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" class="edit-form">
+        <div class="section-title">基础信息</div>
         <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="例如：东京 1 号" />
+          <el-input v-model="form.name" placeholder="例如:东京 1 号" />
         </el-form-item>
+        <el-form-item label="国家/地区" prop="country">
+          <el-input
+            v-model="form.country"
+            placeholder="留空自动识别"
+            maxlength="2"
+            clearable
+            style="width: 200px"
+          >
+            <template #prepend>
+              <img v-if="form.country && form.country.length === 2" :src="`https://flagcdn.com/w40/${form.country.toLowerCase()}.png`" style="width:20px;height:14px;object-fit:cover;border-radius:2px;vertical-align:middle" />
+              <span v-else style="font-size: 14px">🌐</span>
+            </template>
+          </el-input>
+        </el-form-item>
+
+        <div class="section-title">SSH 连接</div>
         <el-form-item label="主机地址" prop="host">
           <el-input v-model="form.host" placeholder="IP 或域名" />
         </el-form-item>
-        <el-form-item label="SSH 端口" prop="ssh_port">
-          <el-input-number v-model="form.ssh_port" :min="1" :max="65535" />
+        <el-form-item label="端口" prop="ssh_port">
+          <el-input
+            v-model.number="form.ssh_port"
+            type="number"
+            min="1"
+            max="65535"
+            placeholder="22"
+            style="width: 110px"
+          />
         </el-form-item>
-        <el-form-item label="SSH 用户" prop="ssh_user">
+        <el-form-item label="用户" prop="ssh_user">
           <el-input v-model="form.ssh_user" />
         </el-form-item>
         <el-form-item label="认证方式" prop="auth_type">
@@ -226,35 +250,21 @@
             :placeholder="editingId ? '留空表示不修改' : '粘贴 PEM 格式私钥'"
           />
         </el-form-item>
+
+        <div class="section-title">高级</div>
         <el-form-item label="探针网卡" prop="agent_iface">
           <el-input
             v-model="form.agent_iface"
-            placeholder="留空自动识别默认路由网卡（推荐）"
+            placeholder="留空自动"
             clearable
           />
-          <div class="field-hint">用于网速统计；多网卡时手动指定，如 eth0 / ens18</div>
-        </el-form-item>
-        <el-form-item label="国家/地区" prop="country">
-          <el-input
-            v-model="form.country"
-            placeholder="留空部署时自动识别；手动填如 hk / jp / us"
-            maxlength="2"
-            clearable
-            style="width: 180px"
-          >
-            <template #prepend>
-              <img v-if="form.country && form.country.length === 2" :src="`https://flagcdn.com/w40/${form.country.toLowerCase()}.png`" style="width:20px;height:14px;object-fit:cover;border-radius:2px;vertical-align:middle" />
-              <span v-else style="font-size: 14px">🌐</span>
-            </template>
-          </el-input>
-          <div class="field-hint">ISO2 国家码（两位字母），用于卡片国旗显示；部署成功会自动回填</div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
-    </el-dialog>
+    </el-drawer>
 
     <!-- 详情抽屉 -->
     <el-drawer
@@ -908,6 +918,20 @@ onBeforeUnmount(() => {
 .field-hint {
   font-size: 12px; color: #9ca3af; margin-top: 4px;
 }
+
+/* 编辑/新增抽屉:与 SettingsDialog 风格统一 */
+.edit-form { padding: 4px 8px 0 0; }
+.edit-form .section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  padding: 0 0 12px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #6366f1;
+  display: inline-block;
+  min-width: 80px;
+}
+.edit-form .section-title:not(:first-child) { margin-top: 22px; }
 
 /* 空状态 */
 .empty {

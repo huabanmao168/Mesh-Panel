@@ -15,7 +15,7 @@
       <div class="brand">
         <div class="logo">MP</div>
         <div class="brand-text">
-          <div class="brand-title">MeshPanel <span class="brand-ver">v0.0.2</span></div>
+          <div class="brand-title">MeshPanel <span class="brand-ver">v0.0.3</span></div>
           <div class="brand-sub">一站式服务器管理</div>
         </div>
       </div>
@@ -150,6 +150,16 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
+/* 全站:数字输入框去掉浏览器原生上下小箭头 */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 html, body, #app { height: 100%; margin: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",

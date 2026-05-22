@@ -10,6 +10,9 @@ from models.node import Node
 from deploy.singbox_config import (
     DEFAULT_SS_CONFIG,
     SUPPORTED_METHODS,
+    SUPPORTED_PROTOCOLS,
+    SUPPORTED_SNIFFERS,
+    LOG_LEVELS,
     DNS_STRATEGIES,
     render_singbox_config,
     validate_ss_config,
@@ -41,7 +44,10 @@ def _load_ss(node: Node) -> dict:
 def list_options():
     """前端下拉数据。"""
     return _ok({
+        "protocols": SUPPORTED_PROTOCOLS,
         "methods": SUPPORTED_METHODS,
+        "sniffers": SUPPORTED_SNIFFERS,
+        "log_levels": LOG_LEVELS,
         "dns_strategies": DNS_STRATEGIES,
         "defaults": DEFAULT_SS_CONFIG,
     })

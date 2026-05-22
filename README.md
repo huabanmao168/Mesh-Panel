@@ -29,7 +29,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main
 
 ```
 ================ MeshPanel 管理菜单 ================
-  版本: v0.0.2   服务: 运行中   端口: 8000
+  版本: v0.0.3   服务: 运行中   端口: 8000
   访问: http://你的IP:8000
 ====================================================
 

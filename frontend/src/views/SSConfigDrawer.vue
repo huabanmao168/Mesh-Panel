@@ -1,5 +1,13 @@
 <template>
-  <el-drawer v-model="visible" title="节点配置" size="640px" @open="load">
+  <el-drawer
+    v-model="visible"
+    title="节点配置"
+    size="560px"
+    direction="rtl"
+    :modal="true"
+    class="ss-drawer"
+    @open="load"
+  >
     <div v-loading="loading" class="ss-form">
       <el-form :model="form" label-width="92px" label-position="right">
         <!-- 基础 -->
@@ -8,40 +16,38 @@
 
           <el-form-item label="启用节点">
             <el-switch v-model="form.enabled" />
-            <span class="status-text" :class="{ on: form.enabled }">
-              {{ form.enabled ? '已启用' : '已关闭' }}
-            </span>
+          </el-form-item>
+
+          <el-form-item label="入站协议">
+            <el-radio-group v-model="form.protocol">
+              <el-radio value="shadowsocks">Shadowsocks</el-radio>
+              <el-radio value="socks">SOCKS5</el-radio>
+            </el-radio-group>
           </el-form-item>
 
           <el-form-item label="监听 IP">
-            <el-input v-model="form.listen_addr" placeholder="留空 = 全部接口（::）" />
-            <div class="hint">留空或 <code>::</code> 监听 v4+v6 · <code>0.0.0.0</code> 仅 v4</div>
+            <el-input v-model="form.listen_addr" placeholder="留空 = 全部接口" />
           </el-form-item>
 
           <el-form-item label="监听端口">
-            <el-input-number
-              v-model="form.listen_port"
-              :min="1"
-              :max="65535"
-              :controls="false"
-              style="width: 120px"
+            <el-input
+              v-model.number="form.listen_port"
+              type="number"
+              min="1"
+              max="65535"
+              placeholder="8388"
+              style="width: 110px"
             />
-            <span class="hint inline">1 – 65535</span>
           </el-form-item>
         </div>
 
         <!-- Shadowsocks -->
-        <div class="section">
+        <div v-if="form.protocol === 'shadowsocks'" class="section">
           <div class="section-title">Shadowsocks</div>
 
           <el-form-item label="加密方式">
             <el-select v-model="form.method" style="width: 100%">
-              <el-option
-                v-for="m in options.methods"
-                :key="m"
-                :label="m"
-                :value="m"
-              />
+              <el-option v-for="m in options.methods" :key="m" :label="m" :value="m" />
             </el-select>
           </el-form-item>
 
@@ -51,7 +57,65 @@
                 <el-button type="primary" plain @click="genPassword">生成</el-button>
               </template>
             </el-input>
-            <div class="hint">点「生成」按当前加密方式自动产出合法字节数</div>
+          </el-form-item>
+
+          <el-form-item label="启用 UDP">
+            <el-switch v-model="form.udp_enabled" />
+          </el-form-item>
+
+          <el-form-item v-if="isSS2022" label="NTP 校时">
+            <el-switch v-model="form.ntp_enabled" />
+          </el-form-item>
+          <el-form-item v-if="isSS2022 && form.ntp_enabled" label="NTP 服务器">
+            <el-input v-model="form.ntp_server" placeholder="time.apple.com" />
+          </el-form-item>
+        </div>
+
+        <!-- SOCKS5 -->
+        <div v-if="form.protocol === 'socks'" class="section">
+          <div class="section-title">SOCKS5</div>
+
+          <el-form-item label="启用认证">
+            <el-switch v-model="form.socks_auth_enabled" />
+          </el-form-item>
+
+          <el-form-item v-if="form.socks_auth_enabled" label="用户名">
+            <el-input v-model="form.socks_username" />
+          </el-form-item>
+          <el-form-item v-if="form.socks_auth_enabled" label="密码">
+            <el-input v-model="form.socks_password" type="password" show-password>
+              <template #append>
+                <el-button type="primary" plain @click="genSocksPassword">生成</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+        </div>
+
+        <!-- 访问控制 -->
+        <div class="section">
+          <div class="section-title">访问控制 · IP 白名单</div>
+          <el-form-item label="允许的 IP">
+            <el-input
+              v-model="form.ip_allowlist"
+              type="textarea"
+              :rows="4"
+              placeholder="每行一个 IP 或 CIDR&#10;留空 = 不限制&#10;1.2.3.4&#10;10.0.0.0/8"
+              resize="none"
+            />
+          </el-form-item>
+        </div>
+
+        <!-- 高级 -->
+        <div class="section">
+          <div class="section-title">高级</div>
+
+          <el-form-item label="域名嗅探">
+            <el-switch v-model="form.sniff_enabled" />
+          </el-form-item>
+          <el-form-item v-if="form.sniff_enabled" label="嗅探协议">
+            <el-checkbox-group v-model="form.sniff_protocols">
+              <el-checkbox v-for="s in options.sniffers" :key="s" :value="s" :label="s.toUpperCase()" />
+            </el-checkbox-group>
           </el-form-item>
         </div>
 
@@ -63,19 +127,11 @@
             <el-input v-model="form.dns_primary" placeholder="https://1.1.1.1/dns-query" />
           </el-form-item>
           <el-form-item label="备用 DNS">
-            <el-input v-model="form.dns_backup" placeholder="留空 = 不使用备用" />
+            <el-input v-model="form.dns_backup" placeholder="留空" />
           </el-form-item>
-          <div class="dns-hint">
-            <code>https://</code> DoH ·
-            <code>tls://</code> DoT ·
-            <code>quic://</code> DoQ ·
-            <code>udp://</code> 明文 ·
-            纯 IP 走 UDP
-          </div>
-
           <el-form-item label="解析策略">
             <el-select v-model="form.dns_strategy" style="width: 100%">
-              <el-option label="仅 IPv4（海外节点推荐）" value="ipv4_only" />
+              <el-option label="仅 IPv4" value="ipv4_only" />
               <el-option label="仅 IPv6" value="ipv6_only" />
               <el-option label="优先 IPv4" value="prefer_ipv4" />
               <el-option label="优先 IPv6" value="prefer_ipv6" />
@@ -91,7 +147,7 @@
         :closable="false"
         show-icon
       >
-        最后一次应用：{{ fmtTime(applyStatus.applied_at) }}
+        最后应用:{{ fmtTime(applyStatus.applied_at) }}
       </el-alert>
       <el-alert
         v-else-if="applyStatus.apply_status === 'failed'"
@@ -124,7 +180,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api.js'
 
@@ -137,18 +193,34 @@ const previewVisible = ref(false)
 const previewJson = ref('')
 
 const nodeId = ref(null)
+const originalProtocol = ref(null)
+
 const form = reactive({
   enabled: false,
+  protocol: 'shadowsocks',
   listen_addr: '0.0.0.0',
   listen_port: 8388,
   password: '',
   method: '2022-blake3-aes-128-gcm',
+  udp_enabled: true,
+  socks_auth_enabled: true,
+  socks_username: '',
+  socks_password: '',
+  ip_allowlist: '',
+  sniff_enabled: false,
+  sniff_protocols: ['tls', 'http'],
+  ntp_enabled: false,
+  ntp_server: 'time.apple.com',
   dns_primary: 'https://1.1.1.1/dns-query',
   dns_backup: 'https://8.8.8.8/dns-query',
   dns_strategy: 'ipv4_only',
 })
-const options = reactive({ methods: [], dns_strategies: [] })
+const options = reactive({ methods: [], protocols: [], sniffers: [], log_levels: [], dns_strategies: [] })
 const applyStatus = reactive({ apply_status: 'never', applied_at: null, apply_error: null })
+
+const isSS2022 = computed(
+  () => form.protocol === 'shadowsocks' && (form.method || '').startsWith('2022-')
+)
 
 function open(id) {
   nodeId.value = id
@@ -165,6 +237,7 @@ async function load() {
     ])
     Object.assign(options, optResp.data)
     Object.assign(form, cfgResp.data.config)
+    originalProtocol.value = cfgResp.data.config.protocol || 'shadowsocks'
     applyStatus.apply_status = cfgResp.data.apply_status
     applyStatus.applied_at = cfgResp.data.applied_at
     applyStatus.apply_error = cfgResp.data.apply_error
@@ -173,30 +246,44 @@ async function load() {
   }
 }
 
-function genPassword() {
-  const m = form.method
-  let bytes
-  if (m === '2022-blake3-aes-128-gcm') {
-    bytes = 16
-  } else if (m === 'none') {
-    ElMessage.warning('加密方式为 none，无需密码')
-    return
-  } else {
-    bytes = 32
-  }
-  const arr = new Uint8Array(bytes)
+function _randBytes(n) {
+  const arr = new Uint8Array(n)
   crypto.getRandomValues(arr)
   let bin = ''
   arr.forEach((b) => (bin += String.fromCharCode(b)))
-  form.password = btoa(bin)
+  return btoa(bin)
+}
+
+function genPassword() {
+  const m = form.method
+  const bytes = m === '2022-blake3-aes-128-gcm' ? 16 : 32
+  form.password = _randBytes(bytes)
   ElMessage.success(`已生成 ${bytes} 字节密码`)
 }
 
+function genSocksPassword() {
+  form.socks_password = _randBytes(16).replace(/=+$/, '')
+  ElMessage.success('已生成')
+}
+
 async function save(thenApply) {
+  if (originalProtocol.value && form.protocol !== originalProtocol.value) {
+    try {
+      await ElMessageBox.confirm(
+        `协议将切换为 ${form.protocol},客户端需重新配置。确认?`,
+        '协议切换',
+        { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+
   saving.value = true
   try {
     await http.put(`/nodes/${nodeId.value}/ss-config`, form)
     ElMessage.success('已保存')
+    originalProtocol.value = form.protocol
     if (thenApply) await apply()
     else visible.value = false
   } catch (e) {
@@ -222,7 +309,7 @@ async function apply() {
       applyStatus.apply_status = 'failed'
       applyStatus.apply_error = (resp.data.error || '') + '\n' + (resp.data.check_output || resp.data.message || '')
       ElMessageBox.alert(
-        `阶段：${resp.data.stage}\n\n${applyStatus.apply_error}`,
+        `阶段:${resp.data.stage}\n\n${applyStatus.apply_error}`,
         '应用失败',
         { type: 'error' },
       )
@@ -251,52 +338,46 @@ function fmtTime(t) {
 </script>
 
 <style scoped>
+/* 锁死抽屉尺寸:禁用 element-plus 在某些场景下的边缘 resize 行为 */
+:deep(.ss-drawer .el-drawer) {
+  resize: none !important;
+}
+:deep(.ss-drawer .el-drawer__body) {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 数字输入框去掉原生上下箭头 */
+:deep(input[type=number]::-webkit-outer-spin-button),
+:deep(input[type=number]::-webkit-inner-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+:deep(input[type=number]) {
+  -moz-appearance: textfield;
+}
+
 .ss-form { padding: 0 20px 12px; }
 
-.section { margin-bottom: 18px; }
+.section { margin-bottom: 24px; }
 .section-title {
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
-  color: #6366f1;
-  letter-spacing: 0.5px;
-  padding: 6px 0 10px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid #f1f2f5;
+  color: #1f2937;
+  padding: 0 0 12px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #6366f1;
+  display: inline-block;
+  min-width: 80px;
 }
 
 :deep(.el-form-item) { margin-bottom: 14px; }
 :deep(.el-form-item__label) { color: #4b5563; font-weight: 500; }
-
-.hint {
-  font-size: 12px;
-  color: #9ca3af;
-  line-height: 1.6;
-  margin-top: 4px;
-  width: 100%;
-}
-.hint.inline { margin-left: 10px; margin-top: 0; width: auto; }
-.hint code,
-.dns-hint code {
-  background: #f3f4f6;
-  padding: 0 5px;
-  border-radius: 3px;
-  color: #6366f1;
+:deep(.el-textarea__inner) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11.5px;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
-.dns-hint {
-  font-size: 12px;
-  color: #9ca3af;
-  margin: -4px 0 12px 92px;
-  line-height: 1.8;
-}
-
-.status-text {
-  margin-left: 12px;
-  font-size: 12px;
-  color: #9ca3af;
-}
-.status-text.on { color: #10b981; }
 
 .apply-alert { margin-top: 8px; }
 
