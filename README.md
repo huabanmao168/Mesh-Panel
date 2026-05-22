@@ -17,40 +17,51 @@
 - JWT cookie 鉴权，首次访问设置管理员密码
 - **前后端 + WebSocket 同端口**，一个端口走完所有流量，反代友好
 
-## 一键安装（推荐）
+## 一键管理（推荐）
 
-在任意 Debian/Ubuntu/CentOS/RHEL/Fedora 主控机上，以 root 跑：
+在任意 Debian/Ubuntu/CentOS/RHEL/Fedora 主控机上，以 root 跑:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main/install.sh)
 ```
 
-脚本会：
+会弹出菜单:
 
-1. 装系统依赖（`python3 python3-venv git curl`）
-2. 克隆最新 release 源码到 `/opt/mesh-panel/`
-3. 从 GitHub Release 下载预构建的前端 dist 和 agent 三平台二进制
-4. 创建 Python venv 装依赖
-5. 写 `/etc/systemd/system/meshpanel.service` 并启动
-6. 输出访问地址（默认 `http://你的IP:8000`）
+```
+================ MeshPanel 管理菜单 ================
+  版本: v0.0.2   服务: 运行中   端口: 8000
+  访问: http://你的IP:8000
+====================================================
+
+  1) 安装 MeshPanel
+  2) 更新到最新版
+  3) 卸载 MeshPanel
+  ----
+  4) 启动服务
+  5) 停止服务
+  6) 重启服务
+  7) 查看状态
+  8) 查看日志 (实时)
+  ----
+  0) 退出
+```
 
 首次访问浏览器设置管理员密码即可。
 
-## 更新
+安装完成后,以后再开菜单只需:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main/update.sh)
+bash /opt/mesh-panel/install.sh
 ```
 
-会拉最新 tag 的源码 + release 产物，自动重启服务。
-
-## 卸载
+也支持直接传参非交互执行:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main/uninstall.sh)
+bash /opt/mesh-panel/install.sh update     # 更新
+bash /opt/mesh-panel/install.sh restart    # 重启
+bash /opt/mesh-panel/install.sh logs       # 实时日志
+bash /opt/mesh-panel/install.sh uninstall  # 卸载
 ```
-
-停止服务、删除 `/opt/mesh-panel/`、移除 systemd unit。**节点不会自动卸载**，请先在面板里挨个点「卸载」清干净节点。
 
 ## 常用命令
 
@@ -75,9 +86,8 @@ mesh-panel/
 ├── frontend/           # Vue 3 + Vite + Element Plus
 │   └── dist/           # 构建产物(release 自动下载,生产由后端 serve)
 ├── docs/               # 设计文档
-├── install.sh          # 一键安装
-├── update.sh           # 一键更新
-└── uninstall.sh        # 一键卸载
+├── install.sh          # 一键管理脚本(菜单:安装/更新/卸载/启停/日志)
+└── data/               # 运行时数据(SQLite + 上传的证书),不入库
 ```
 
 ## 开发模式

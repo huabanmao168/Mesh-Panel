@@ -14,5 +14,16 @@ class Setting(SQLModel, table=True):
 
 # 默认设置项及缺省值
 DEFAULTS: dict[str, str] = {
-    "agent_endpoint": "",  # 主控公网 WS 地址，例如 ws://1.2.3.4:8000
+    # agent 回连地址（节点 agent 用此地址连主控 WS）
+    "agent_endpoint": "",            # 例：ws://1.2.3.4:8000 或 wss://panel.example.com
+
+    # 面板自身监听
+    "panel_host": "0.0.0.0",          # 监听 IP
+    "panel_port": "8000",             # 监听端口，1-65535
+    "panel_domain": "",               # 强制 Host 校验。非空时只允许此域名访问面板（agent WS 豁免）
+
+    # TLS（启用后 panel 由 uvicorn 直接 serve HTTPS）
+    "tls_enabled": "0",               # "1" 启用
+    "tls_cert_path": "",              # 证书 fullchain 文件绝对路径
+    "tls_key_path": "",               # 私钥文件绝对路径
 }

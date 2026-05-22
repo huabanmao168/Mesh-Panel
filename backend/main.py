@@ -38,8 +38,33 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def host_guard_middleware(request: Request, call_next):
+    """域名强制访问:settings.panel_domain 非空时,Host header 必须匹配该域名。
+    豁免 /api/health(让运维 curl IP 探活)和本机请求(127.0.0.1/::1)。
+    WS 走不同的协议栈,在 ws/agents.py 单独处理(目前 agent 凭 token 鉴权,不校验 Host)。
+    """
+    from api.settings import get_setting as _gs
+    from database import engine as _eng
+    from sqlmodel import Session as _S
+
+    path = request.url.path
+    if path != "/api/health":
+        with _S(_eng) as s:
+            domain = _gs(s, "panel_domain", "").strip()
+        if domain:
+            host = (request.headers.get("host") or "").split(":")[0].lower()
+            client_ip = request.client.host if request.client else ""
+            if host != domain.lower() and client_ip not in ("127.0.0.1", "::1", "localhost"):
+                return JSONResponse(
+                    {"ok": False, "error": f"此面板仅允许通过域名 {domain} 访问"},
+                    status_code=403,
+                )
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    """所有 /api/* 路径必须带有效 cookie，白名单除外。WS 不走这里。"""
+    """所有 /api/* 路径必须带有效 cookie,白名单除外。WS 不走这里。"""
     path = request.url.path
     if path.startswith("/api/") and not is_whitelisted(path):
         user = check_auth(request)
@@ -53,7 +78,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "data": {"service": "MeshPanel", "version": "0.0.1"}}
+    return {"ok": True, "data": {"service": "MeshPanel", "version": "0.0.2"}}
 
 
 app.include_router(auth_router)

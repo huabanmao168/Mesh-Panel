@@ -53,6 +53,11 @@ export const nodeApi = {
 export const settingsApi = {
   get: () => http.get('/settings'),
   update: (payload) => http.patch('/settings', payload),
+  uploadCert: (formData) =>
+    http.post('/settings/cert', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 30000,
+    }),
 }
 
 export default http
