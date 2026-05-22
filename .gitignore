@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+*.egg-info/
+
+# --- Node / Vite ---
+node_modules/
+frontend/dist/
+.vite/
+*.local
+
+# --- Go build cache ---
+agent/agent
+agent/mesh-agent
+agent/socks-agent
+
+# --- agent dist binaries (rebuilt by `make all`) ---
+backend/agent_dist/*
+!backend/agent_dist/.gitkeep
+
+# --- Data / runtime (敏感:节点凭据 / token / admin 密码) ---
+data/
+*.db
+*.sqlite*
+*.db-journal
+
+# --- Logs / temp ---
+*.log
+logs/
+*.tmp
+*.swp
+.DS_Store
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- IDE ---
+.vscode/
+.idea/
+*.iml
