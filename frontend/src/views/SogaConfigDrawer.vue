@@ -70,21 +70,7 @@
 
         <!-- 实例列表 -->
         <div class="section">
-          <div class="section-head">
-            <div class="section-title">Soga 实例</div>
-            <el-select
-              v-if="instances.length"
-              v-model="instSortBy"
-              size="small"
-              class="sort-select"
-            >
-              <el-option label="自定义 (拖拽)" value="custom" />
-              <el-option label="按名称 A→Z" value="name" />
-              <el-option label="按别名 A→Z" value="alias" />
-              <el-option label="按路由数 多→少" value="routes_desc" />
-              <el-option label="按路由数 少→多" value="routes_asc" />
-            </el-select>
-          </div>
+          <div class="section-title">Soga 实例</div>
 
           <div v-if="!instances.length && !scanning" class="empty-state">
             点上方「加载配置」拉取入口机上的实例
@@ -110,7 +96,6 @@
               tag="div"
               class="inst-list"
               handle=".inst-drag"
-              :disabled="instSortBy !== 'custom'"
               @end="onDragEnd"
             >
               <template #item="{ element: inst }">
@@ -118,11 +103,7 @@
                 class="inst-card"
                 :class="{ disabled: inst.enabled === false }"
               >
-                <span
-                  class="inst-drag"
-                  :class="{ disabled: instSortBy !== 'custom' }"
-                  :title="instSortBy === 'custom' ? '拖动排序' : '切到「自定义」才能拖动'"
-                >⠿</span>
+                <span class="inst-drag" title="拖动排序">⠿</span>
                 <div class="inst-main">
                   <div class="inst-title">
                     <template v-if="editingId === inst.id">
@@ -308,43 +289,13 @@ const activePrefix = ref('')
 const activeGroupItems = computed(
   () => groupedInstances.value.find(g => g.prefix === activePrefix.value)?.items || []
 )
-const instSortBy = ref(localStorage.getItem('soga_inst_sort') || 'custom')
-watch(instSortBy, (v) => { try { localStorage.setItem('soga_inst_sort', v) } catch {} })
-const sortedActiveItems = computed(() => {
-  const arr = [...activeGroupItems.value]
-  const by = instSortBy.value
-  const cmpStr = (a, b) => (a || '').localeCompare(b || '', 'zh-Hans-CN')
-  if (by === 'custom') {
-    // 后端已按 sort_order 给,这里不动
-    return arr
-  }
-  if (by === 'name') {
-    arr.sort((a, b) => cmpStr(a.folder_name, b.folder_name))
-  } else if (by === 'alias') {
-    arr.sort((a, b) => {
-      const an = a.display_name || a.folder_name || ''
-      const bn = b.display_name || b.folder_name || ''
-      if (!!a.display_name !== !!b.display_name) return a.display_name ? -1 : 1
-      return cmpStr(an, bn)
-    })
-  } else if (by === 'routes_desc') {
-    arr.sort((a, b) => (b.route_count ?? -1) - (a.route_count ?? -1) || cmpStr(a.folder_name, b.folder_name))
-  } else if (by === 'routes_asc') {
-    arr.sort((a, b) => (a.route_count ?? 1e9) - (b.route_count ?? 1e9) || cmpStr(a.folder_name, b.folder_name))
-  }
-  return arr
-})
-
 // draggable 用本地副本,@end 后调 API 持久化
 const dragList = ref([])
-watch(sortedActiveItems, (v) => { dragList.value = [...v] }, { immediate: true })
+watch(activeGroupItems, (v) => { dragList.value = [...v] }, { immediate: true })
 async function onDragEnd() {
-  if (instSortBy.value !== 'custom') return
   if (!node.value?.id) return
-  // dragList 已是新顺序,把 sort_order 回写并调 API
   const ids = dragList.value.map(i => i.id).filter(Boolean)
   if (!ids.length) return
-  // 同步更新本地 instances 的 sort_order(可视上下次刷新前不抖动)
   dragList.value.forEach((it, idx) => {
     const local = instances.value.find(i => i.id === it.id)
     if (local) local.sort_order = idx * 10
@@ -519,7 +470,6 @@ defineExpose({ open })
   gap: 12px;
 }
 .section-head .section-title { margin-bottom: 0; }
-.sort-select { width: 150px; }
 .inst-drag {
   cursor: grab;
   color: #94a3b8;
@@ -529,7 +479,6 @@ defineExpose({ open })
   letter-spacing: -2px;
 }
 .inst-drag:hover { color: #6366f1; }
-.inst-drag.disabled { cursor: not-allowed; opacity: 0.35; }
 .inst-drag:active { cursor: grabbing; }
 
 .entry-actions {
