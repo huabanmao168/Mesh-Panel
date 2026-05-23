@@ -45,24 +45,45 @@ def derive_schema(version: str) -> str:
 
 
 def _connect(node) -> paramiko.SSHClient:
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    kwargs = dict(
-        hostname=node.host,
-        port=node.ssh_port,
-        username=node.ssh_user,
-        timeout=10,
-        allow_agent=False,
-        look_for_keys=False,
-    )
-    if node.auth_type == "password":
-        kwargs["password"] = decrypt(node.ssh_password)
-    elif node.auth_type == "key":
-        kwargs["pkey"] = _load_pkey(decrypt(node.ssh_private_key) or "")
-    else:
-        raise ValueError(f"未知认证方式: {node.auth_type}")
-    client.connect(**kwargs)
-    return client
+    """SSH 连节点。节点 sshd MaxStartups 限速会偶发 'banner' 错,做 3 次重试。"""
+    import time
+    last_err: Optional[Exception] = None
+    for attempt in range(3):
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        kwargs = dict(
+            hostname=node.host,
+            port=node.ssh_port,
+            username=node.ssh_user,
+            timeout=15,
+            banner_timeout=30,
+            auth_timeout=30,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        if node.auth_type == "password":
+            kwargs["password"] = decrypt(node.ssh_password)
+        elif node.auth_type == "key":
+            kwargs["pkey"] = _load_pkey(decrypt(node.ssh_private_key) or "")
+        else:
+            raise ValueError(f"未知认证方式: {node.auth_type}")
+        try:
+            client.connect(**kwargs)
+            return client
+        except paramiko.SSHException as e:
+            last_err = e
+            try: client.close()
+            except Exception: pass
+            msg = str(e).lower()
+            if "banner" in msg or "connection reset" in msg or "eoferror" in msg:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            try: client.close()
+            except Exception: pass
+            raise
+    raise last_err or paramiko.SSHException("SSH 连接失败: 未知错误")
 
 
 def _detect_arch(client: paramiko.SSHClient) -> str:
