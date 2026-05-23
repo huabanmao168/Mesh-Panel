@@ -1,11 +1,11 @@
-"""SS 配置推送到节点：SFTP 传 + sing-box check 校验 + 原子替换。"""
-import io
+"""SS 配置推送到节点：通过 agent RPC 写文件 + sing-box check 校验 + 原子替换。
+
+agent 离线直接返回 PushResult(ok=False)。
+"""
 import json
 from dataclasses import dataclass
 
-import paramiko
-
-from deploy.installer import _connect
+from deploy import remote
 
 REMOTE_CONFIG = "/opt/meshPanel/config.json"
 REMOTE_CONFIG_NEW = "/opt/meshPanel/config.json.new"
@@ -19,47 +19,57 @@ class PushResult:
 
 
 def push_config(node, singbox_json: dict) -> PushResult:
-    """推配置到节点：SFTP → dry-run → atomic mv。"""
-    try:
-        client = _connect(node)
-    except Exception as e:  # noqa: BLE001
-        return PushResult(ok=False, error=f"SSH 连接失败: {type(e).__name__}: {e}")
+    """推配置到节点：写临时文件 → sing-box check → atomic mv。"""
+    if not remote.is_online(node.id):
+        return PushResult(ok=False, error="agent 离线")
 
     try:
-        body = json.dumps(singbox_json, indent=2, ensure_ascii=False).encode("utf-8")
-        sftp = client.open_sftp()
+        body = json.dumps(singbox_json, indent=2, ensure_ascii=False)
+
+        # 1) 确保目录存在
         try:
-            client.exec_command("mkdir -p /opt/meshPanel")[1].read()
-            with sftp.file(REMOTE_CONFIG_NEW, "wb") as f:
-                f.write(body)
-            sftp.chmod(REMOTE_CONFIG_NEW, 0o644)
-        finally:
-            sftp.close()
+            remote.remote_exec(node, "mkdir -p /opt/meshPanel", timeout=10)
+        except remote.RemoteError as e:
+            return PushResult(ok=False, error=f"mkdir 失败: {e}")
 
-        # dry-run 校验
-        _, stdout, stderr = client.exec_command(
-            f"/opt/meshPanel/sing-box check -c {REMOTE_CONFIG_NEW}", timeout=15
-        )
-        rc = stdout.channel.recv_exit_status()
-        check_out = stdout.read().decode(errors="replace") + stderr.read().decode(errors="replace")
+        # 2) 写新配置
+        try:
+            remote.remote_write(node, REMOTE_CONFIG_NEW, body, mode=0o644)
+        except remote.RemoteError as e:
+            return PushResult(ok=False, error=f"写入临时配置失败: {e}")
+
+        # 3) dry-run 校验
+        try:
+            r = remote.remote_exec(
+                node,
+                f"/opt/meshPanel/sing-box check -c {REMOTE_CONFIG_NEW}",
+                timeout=15,
+            )
+        except remote.RemoteError as e:
+            return PushResult(ok=False, error=f"check 调用失败: {e}")
+
+        rc = r.get("rc", -1)
+        check_out = (r.get("stdout", "") or "") + (r.get("stderr", "") or "")
         if rc != 0:
-            # 不替换旧配置，清掉临时文件
-            client.exec_command(f"rm -f {REMOTE_CONFIG_NEW}")[1].read()
+            # 清掉临时文件
+            try:
+                remote.remote_exec(node, f"rm -f {REMOTE_CONFIG_NEW}", timeout=10)
+            except remote.RemoteError:
+                pass
             return PushResult(ok=False, error=f"sing-box check 失败 (rc={rc})", check_output=check_out)
 
-        # 原子替换
-        _, stdout, stderr = client.exec_command(
-            f"mv {REMOTE_CONFIG_NEW} {REMOTE_CONFIG}", timeout=10
-        )
-        rc = stdout.channel.recv_exit_status()
+        # 4) 原子替换
+        try:
+            r = remote.remote_exec(node, f"mv {REMOTE_CONFIG_NEW} {REMOTE_CONFIG}", timeout=10)
+        except remote.RemoteError as e:
+            return PushResult(ok=False, error=f"mv 调用失败: {e}")
+        rc = r.get("rc", -1)
         if rc != 0:
-            return PushResult(ok=False, error=f"mv 失败 (rc={rc}): {stderr.read().decode(errors='replace')}")
+            return PushResult(
+                ok=False,
+                error=f"mv 失败 (rc={rc}): {r.get('stderr', '')}",
+            )
 
         return PushResult(ok=True, check_output=check_out)
     except Exception as e:  # noqa: BLE001
         return PushResult(ok=False, error=f"{type(e).__name__}: {e}")
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass

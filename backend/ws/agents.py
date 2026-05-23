@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 
 from database import engine
 from models.node import Node
+from deploy import agent_rpc
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -104,12 +105,16 @@ async def node_ws(
         log.warning("ws auth failed node_id=%s", node_id)
         return
 
+    # 把主事件循环交给 RPC 模块,只需绑一次
+    agent_rpc.bind_loop(asyncio.get_running_loop())
+
     await ws.accept()
     log.info("ws connected node_id=%s version=%s", node_id, version)
 
-    # 同一节点重连，先关旧连接
+    # 同一节点重连，先关旧连接 + 清 in-flight RPC
     old = _connections.pop(node_id, None)
     if old is not None:
+        agent_rpc.fail_all_for_node(node_id, reason="agent 重连")
         try:
             await old.close()
         except Exception:
@@ -162,6 +167,8 @@ async def node_ws(
             elif mtype == "ack":
                 log.info("ack node_id=%s action=%s ok=%s msg=%s",
                          node_id, msg.get("action"), msg.get("ok"), msg.get("message"))
+            elif mtype == "rpc_resp":
+                agent_rpc.handle_response(node_id, msg)
             else:
                 log.info("recv from node_id=%s: %s", node_id, msg)
     except WebSocketDisconnect:
@@ -173,6 +180,7 @@ async def node_ws(
             _connections.pop(node_id, None)
             _write_locks.pop(node_id, None)
         _metrics.pop(node_id, None)
+        agent_rpc.fail_all_for_node(node_id, reason="agent ws 断开")
         _mark_status(node_id, online=False)
 
 
@@ -194,6 +202,7 @@ async def disconnect_node(node_id: int) -> bool:
     """主动断开节点 WS（卸载或删除节点时调用）。"""
     ws = _connections.pop(node_id, None)
     _write_locks.pop(node_id, None)
+    agent_rpc.fail_all_for_node(node_id, reason="节点被主动断开")
     if ws is None:
         return False
     try:
@@ -224,6 +233,7 @@ async def sweep_offline_loop():
                             pass
                         _connections.pop(n.id, None)
                         _write_locks.pop(n.id, None)
+                    agent_rpc.fail_all_for_node(n.id, reason="心跳超时")
                     n.agent_status = "offline"
                     n.updated_at = datetime.utcnow()
                     s.add(n)

@@ -124,41 +124,10 @@ async def apply_ss(node_id: int, session: Session = Depends(get_session)):
             "check_output": push.check_output,
         })
 
-    # 触发 reload（agent 不在线则降级为 restart via SSH）
+    # 触发 reload(agent RPC)。agent 离线直接失败,不再 SSH 兜底。
     reload_ok, reload_msg = await send_cmd(node_id, "reload")
     if not reload_ok:
-        # agent 不在线：直接 SSH 调 systemctl reload
-        from ssh.client import _load_pkey  # noqa: F401
-        import paramiko
-        try:
-            client = paramiko.SSHClient()
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            kwargs = dict(
-                hostname=node.host, port=node.ssh_port,
-                username=node.ssh_user, timeout=10,
-                allow_agent=False, look_for_keys=False,
-            )
-            if node.auth_type == "password":
-                from security.crypto import decrypt as _dec
-                kwargs["password"] = _dec(node.ssh_password)
-            else:
-                from ssh.client import _load_pkey
-                from security.crypto import decrypt as _dec
-                kwargs["pkey"] = _load_pkey(_dec(node.ssh_private_key) or "")
-            client.connect(**kwargs)
-            _, stdout, stderr = client.exec_command(
-                "systemctl reload sing-box || systemctl restart sing-box", timeout=15
-            )
-            rc = stdout.channel.recv_exit_status()
-            err_text = stderr.read().decode(errors="replace")
-            client.close()
-            if rc == 0:
-                reload_ok = True
-                reload_msg = "通过 SSH 完成 reload（agent 离线）"
-            else:
-                reload_msg = f"SSH reload 失败 rc={rc}: {err_text}"
-        except Exception as e:  # noqa: BLE001
-            reload_msg = f"agent 离线且 SSH reload 失败: {e}"
+        reload_msg = f"agent 离线或 reload 失败: {reload_msg or '未知'}"
 
     if reload_ok:
         node.ss_apply_status = "applied"

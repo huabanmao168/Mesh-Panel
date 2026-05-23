@@ -1,6 +1,7 @@
-"""把 DB 里的 soga_routes 渲染成 routes.toml,SSH 覆盖到入口机。
+"""把 DB 里的 soga_routes 渲染成 routes.toml,通过 agent RPC 覆盖到入口机。
 
-不保留注释、不备份。SoGa 检测到 mtime 变化自动 reload。
+不保留注释、不备份。写文件后调 `soga restart <folder>` 让 SoGa 重新加载。
+所有远程操作走 deploy.remote (agent ws RPC),不再 SSH。
 
 调用约定:
   push_instance_routes(instance, node, landing_nodes_by_id) -> None
@@ -11,13 +12,9 @@
 raises SogaPushError 时上游捕获返回 detail。
 """
 import io
-import time
-import threading
 from typing import Dict, List
 
-import paramiko
-from ssh.client import _load_pkey
-from security.crypto import decrypt
+from deploy import remote
 
 
 class SogaPushError(Exception):
@@ -36,46 +33,9 @@ SYSTEM_PROBE_RULES = [
 ]
 
 
-def _connect(node) -> paramiko.SSHClient:
-    last_err = None
-    for attempt in range(3):
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        kwargs = dict(
-            hostname=node.host,
-            port=node.ssh_port,
-            username=node.ssh_user,
-            timeout=15,
-            banner_timeout=30,
-            auth_timeout=30,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        if node.auth_type == "password":
-            kwargs["password"] = decrypt(node.ssh_password)
-        elif node.auth_type == "key":
-            kwargs["pkey"] = _load_pkey(decrypt(node.ssh_private_key) or "")
-        else:
-            raise SogaPushError(f"未知认证方式: {node.auth_type}")
-        try:
-            client.connect(**kwargs)
-            return client
-        except paramiko.SSHException as e:
-            last_err = e
-            try: client.close()
-            except Exception: pass
-            msg = str(e)
-            # banner / 限速类错误才重试
-            if "banner" in msg.lower() or "Connection reset" in msg or "EOFError" in msg:
-                time.sleep(1.5 * (attempt + 1))
-                continue
-            raise
-        except Exception as e:
-            try: client.close()
-            except Exception: pass
-            raise
-    # 三次都失败
-    raise last_err or SogaPushError("SSH 连接失败: 未知错误")
+def _require_online(node):
+    if not remote.is_online(node.id):
+        raise SogaPushError("agent 离线,无法推送配置")
 
 
 def render_routes_toml(
@@ -191,71 +151,45 @@ def _parse_landing_for_out(land) -> dict:
 
 
 def push_routes(node, folder_name: str, toml_text: str) -> None:
-    """SSH 写 /etc/soga/<folder>/routes.toml — 覆盖,不备份。"""
-    _sftp_write(node, f"/etc/soga/{folder_name}/routes.toml", toml_text)
+    """写 /etc/soga/<folder>/routes.toml — 覆盖,不备份。"""
+    _require_online(node)
+    try:
+        remote.remote_write(node, f"/etc/soga/{folder_name}/routes.toml", toml_text, mode=0o644)
+    except remote.RemoteError as e:
+        raise SogaPushError(f"写 routes.toml 失败: {e}") from e
 
 
 def read_conf(node, folder_name: str) -> str:
-    """SSH 读 /etc/soga/<folder>/soga.conf 原文。"""
+    """读 /etc/soga/<folder>/soga.conf 原文。"""
+    _require_online(node)
+    path = f"/etc/soga/{folder_name}/soga.conf"
     try:
-        client = _connect(node)
-    except Exception as e:
-        raise SogaPushError(f"SSH 连接失败: {type(e).__name__}: {e}") from e
-    try:
-        sftp = client.open_sftp()
-        try:
-            path = f"/etc/soga/{folder_name}/soga.conf"
-            with sftp.file(path, "r") as f:
-                data = f.read()
-            return data.decode("utf-8", errors="replace") if isinstance(data, bytes) else str(data)
-        except FileNotFoundError as e:
-            raise SogaPushError(f"配置不存在: {path}") from e
-        finally:
-            sftp.close()
-    finally:
-        try: client.close()
-        except Exception: pass
+        data = remote.remote_read(node, path, max_size=512 * 1024)
+    except remote.RemoteError as e:
+        raise SogaPushError(f"读 {path} 失败: {e}") from e
+    return data.decode("utf-8", errors="replace")
 
 
 def write_conf(node, folder_name: str, text: str) -> None:
-    """SSH 写 /etc/soga/<folder>/soga.conf — 覆盖。"""
-    _sftp_write(node, f"/etc/soga/{folder_name}/soga.conf", text)
+    """写 /etc/soga/<folder>/soga.conf — 覆盖。"""
+    _require_online(node)
+    try:
+        remote.remote_write(node, f"/etc/soga/{folder_name}/soga.conf", text, mode=0o644)
+    except remote.RemoteError as e:
+        raise SogaPushError(f"写 soga.conf 失败: {e}") from e
 
 
 def restart_soga(node, folder_name: str) -> str:
-    """SSH 跑 `soga restart <folder>`,返回输出。失败抛 SogaPushError。"""
+    """跑 `soga restart <folder>`,返回输出。失败抛 SogaPushError。"""
+    _require_online(node)
+    cmd = f"soga restart {folder_name}"
     try:
-        client = _connect(node)
-    except Exception as e:
-        raise SogaPushError(f"SSH 连接失败: {type(e).__name__}: {e}") from e
-    try:
-        cmd = f"soga restart {folder_name}"
-        stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
-        rc = stdout.channel.recv_exit_status()
-        out = stdout.read().decode("utf-8", errors="replace")
-        err = stderr.read().decode("utf-8", errors="replace")
-        if rc != 0:
-            raise SogaPushError(f"soga restart 失败 (exit {rc}): {err.strip() or out.strip() or '无输出'}")
-        return (out + err).strip()
-    finally:
-        try: client.close()
-        except Exception: pass
-
-
-def _sftp_write(node, path: str, text: str) -> None:
-    try:
-        client = _connect(node)
-    except Exception as e:
-        raise SogaPushError(f"SSH 连接失败: {type(e).__name__}: {e}") from e
-    try:
-        sftp = client.open_sftp()
-        try:
-            tmp_path = path + ".tmp"
-            with sftp.file(tmp_path, "w") as f:
-                f.write(text)
-            sftp.posix_rename(tmp_path, path)
-        finally:
-            sftp.close()
-    finally:
-        try: client.close()
-        except Exception: pass
+        r = remote.remote_exec(node, cmd, timeout=30)
+    except remote.RemoteError as e:
+        raise SogaPushError(f"执行失败: {e}") from e
+    rc = r.get("rc", -1)
+    out = r.get("stdout", "")
+    err = r.get("stderr", "")
+    if rc != 0:
+        raise SogaPushError(f"soga restart 失败 (exit {rc}): {err.strip() or out.strip() or '无输出'}")
+    return (out + err).strip()

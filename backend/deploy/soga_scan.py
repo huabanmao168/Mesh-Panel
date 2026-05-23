@@ -1,4 +1,4 @@
-"""SSH 进入入口机扫 /etc/soga/*/routes.toml,解析每个文件返回路由结构。
+"""通过 agent RPC 进入入口机扫 /etc/soga/*/routes.toml,解析每个文件返回路由结构。
 
 输出格式(给 api/soga.py 入库用):
 [
@@ -19,15 +19,13 @@
 ]
 
 TOML 解析用 Python 3.11+ 内置 tomllib。
+所有远程操作通过 deploy.remote 走 agent ws RPC,不再 SSH。
 """
+import re
 import tomllib
-import io
 from typing import List, Dict, Any
 
-import paramiko
-from ssh.client import _load_pkey
-from security.crypto import decrypt
-
+from deploy import remote
 
 SCAN_TIMEOUT = 20
 MAX_ROUTES_FILE_BYTES = 100 * 1024   # 单个 routes.toml 不超 100KB
@@ -48,129 +46,78 @@ class ScanError(Exception):
     pass
 
 
-def _connect(node) -> paramiko.SSHClient:
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    kwargs = dict(
-        hostname=node.host,
-        port=node.ssh_port,
-        username=node.ssh_user,
-        timeout=10,
-        allow_agent=False,
-        look_for_keys=False,
-    )
-    if node.auth_type == "password":
-        kwargs["password"] = decrypt(node.ssh_password)
-    elif node.auth_type == "key":
-        kwargs["pkey"] = _load_pkey(decrypt(node.ssh_private_key) or "")
-    else:
-        raise ScanError(f"未知认证方式: {node.auth_type}")
-    client.connect(**kwargs)
-    return client
-
-
-def _exec(client: paramiko.SSHClient, cmd: str) -> tuple[int, str, str]:
-    _, stdout, stderr = client.exec_command(cmd, timeout=SCAN_TIMEOUT)
-    out = stdout.read().decode("utf-8", errors="replace")
-    err = stderr.read().decode("utf-8", errors="replace")
-    rc = stdout.channel.recv_exit_status()
-    return rc, out, err
+def _parse_soga_version(text: str) -> str | None:
+    m = re.search(r"soga\s*程序[:：]\s*v?(\d+\.\d+\.\d+)", text or "")
+    if m:
+        return m.group(1)
+    m = re.search(r"soga[\s:：]+v?(\d+\.\d+\.\d+)", text or "", re.IGNORECASE)
+    return m.group(1) if m else None
 
 
 def get_soga_version(node) -> str | None:
-    """跑 `soga version` 解析版本号,失败返 None。
-
-    输出示例:
-        管理工具: v0.0.3
-        soga 程序: v2.14.0
-    只取 "soga 程序" 那行的版本。
-    """
-    import re
+    """跑 `soga version` 解析版本号,失败返 None。"""
     try:
-        client = _connect(node)
-    except Exception:
+        r = remote.remote_exec(node, "soga version 2>&1", timeout=SCAN_TIMEOUT)
+    except remote.RemoteError:
         return None
-    try:
-        rc, out, err = _exec(client, "soga version 2>&1")
-        text = (out + err) if (out or err) else ""
-        # 优先匹配 "soga 程序: vX.Y.Z"
-        m = re.search(r"soga\s*程序[:：]\s*v?(\d+\.\d+\.\d+)", text)
-        if m:
-            return m.group(1)
-        # 兜底:英文 "soga: vX.Y.Z" / "soga vX.Y.Z"
-        m = re.search(r"soga[\s:：]+v?(\d+\.\d+\.\d+)", text, re.IGNORECASE)
-        return m.group(1) if m else None
-    except Exception:
-        return None
-    finally:
-        try: client.close()
-        except Exception: pass
+    return _parse_soga_version((r.get("stdout") or "") + (r.get("stderr") or ""))
 
 
 def scan_soga_instances(node) -> Dict[str, Any]:
     """主入口:返回 {instances: [...], soga_version: "2.14.0"|None}。
 
-    一条 SSH 连接里跑完所有事:扫 folder + 读 routes.toml + 取 soga 版本。
+    通过 agent RPC 扫 folder + 读 routes.toml + 取 soga 版本。
     """
+    if not remote.is_online(node.id):
+        raise ScanError("agent 离线,无法扫描入口机配置")
+
+    # 取 soga 版本
+    soga_version = None
     try:
-        client = _connect(node)
-    except Exception as e:
-        raise ScanError(f"SSH 连接失败: {type(e).__name__}: {e}") from e
+        r = remote.remote_exec(node, "soga version 2>&1", timeout=SCAN_TIMEOUT)
+        soga_version = _parse_soga_version((r.get("stdout") or "") + (r.get("stderr") or ""))
+    except remote.RemoteError:
+        pass  # 取版本失败不阻断扫描
 
+    # 扫文件夹
     try:
-        # 顺手取一次 soga 版本(同一条连接,不额外开 SSH)
-        soga_version = None
-        try:
-            import re
-            _, vout, verr = _exec(client, "soga version 2>&1")
-            vtext = (vout or "") + (verr or "")
-            m = re.search(r"soga\s*程序[:：]\s*v?(\d+\.\d+\.\d+)", vtext)
-            if not m:
-                m = re.search(r"soga[\s:：]+v?(\d+\.\d+\.\d+)", vtext, re.IGNORECASE)
-            if m:
-                soga_version = m.group(1)
-        except Exception:
-            pass
+        folders_raw = remote.remote_list(node, "/etc/soga/*/")
+    except remote.RemoteOffline as e:
+        raise ScanError(str(e)) from e
+    except remote.RemoteError as e:
+        raise ScanError(f"列目录失败: {e}") from e
 
-        rc, out, err = _exec(client, "ls -d /etc/soga/*/ 2>/dev/null")
-        if rc != 0 and not out.strip():
-            return {"instances": [], "soga_version": soga_version}
-        folders = []
-        for line in out.strip().split("\n"):
-            line = line.strip().rstrip("/")
-            if not line:
-                continue
-            folder = line.rsplit("/", 1)[-1]
-            if folder:
-                folders.append(folder)
+    folders = []
+    for p in folders_raw:
+        p = p.rstrip("/")
+        folder = p.rsplit("/", 1)[-1]
+        if folder:
+            folders.append(folder)
 
-        result = []
-        sftp = client.open_sftp()
+    # 逐个读 routes.toml
+    result = []
+    for folder in folders:
+        routes_path = f"/etc/soga/{folder}/routes.toml"
         try:
-            for folder in folders:
-                routes_path = f"/etc/soga/{folder}/routes.toml"
-                try:
-                    st = sftp.stat(routes_path)
-                except IOError:
-                    continue
-                if st.st_size > MAX_ROUTES_FILE_BYTES:
-                    continue
-                buf = io.BytesIO()
-                sftp.getfo(routes_path, buf)
-                buf.seek(0)
-                try:
-                    routes = _parse_routes_toml(buf.read())
-                except Exception as e:
-                    routes = [{"error": f"parse failed: {e}"}]
-                result.append({"folder": folder, "routes": routes})
-        finally:
-            sftp.close()
-        return {"instances": result, "soga_version": soga_version}
-    finally:
+            st = remote.remote_stat(node, routes_path)
+        except remote.RemoteError:
+            continue
+        if st is None:
+            continue
+        if st.get("size", 0) > MAX_ROUTES_FILE_BYTES:
+            continue
         try:
-            client.close()
-        except Exception:
-            pass
+            raw = remote.remote_read(node, routes_path, max_size=MAX_ROUTES_FILE_BYTES)
+        except remote.RemoteError as e:
+            result.append({"folder": folder, "routes": [{"error": f"read failed: {e}"}]})
+            continue
+        try:
+            routes = _parse_routes_toml(raw)
+        except Exception as e:
+            routes = [{"error": f"parse failed: {e}"}]
+        result.append({"folder": folder, "routes": routes})
+
+    return {"instances": result, "soga_version": soga_version}
 
 
 def _parse_routes_toml(raw: bytes) -> List[Dict[str, Any]]:

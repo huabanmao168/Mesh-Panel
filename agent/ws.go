@@ -123,6 +123,10 @@ func serveConn(conn *websocket.Conn, startedAt time.Time) {
 			log.Printf("iface set to %q (effective: %q)", m.Iface, getIface())
 		case "cmd":
 			handleCmd(m.Action, sendJSON)
+		case "rpc":
+			// 不阻塞读循环,每个 RPC 独立 goroutine
+			rawCopy := append([]byte(nil), raw...)
+			go handleRPC(rawCopy, sendJSON)
 		default:
 			log.Printf("unknown msg type: %s", m.Type)
 		}
