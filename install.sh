@@ -276,21 +276,22 @@ print_header() {
 menu() {
   while true; do
     print_header
-    cat <<EOF
-
-  ${c_bold}1)${c_reset} 安装 MeshPanel
-  ${c_bold}2)${c_reset} 更新到最新版
-  ${c_bold}3)${c_reset} 卸载 MeshPanel
+    printf '
+  %b1)%b 安装 MeshPanel
+  %b2)%b 更新到最新版
+  %b3)%b 卸载 MeshPanel
   ----
-  ${c_bold}4)${c_reset} 启动服务
-  ${c_bold}5)${c_reset} 停止服务
-  ${c_bold}6)${c_reset} 重启服务
-  ${c_bold}7)${c_reset} 查看状态
-  ${c_bold}8)${c_reset} 查看日志 (实时)
+  %b4)%b 启动服务
+  %b5)%b 停止服务
+  %b6)%b 重启服务
+  %b7)%b 查看状态
+  %b8)%b 查看日志 (实时)
   ----
-  ${c_bold}0)${c_reset} 退出
+  %b0)%b 退出
 
-EOF
+' "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
+  "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
+  "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset"
     read -p "请选择 [0-8]: " choice
     echo
     case "$choice" in
