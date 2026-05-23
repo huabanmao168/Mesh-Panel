@@ -222,6 +222,29 @@ def render_singbox_config(ss_cfg: dict, schema: str = "singbox-1.13") -> dict:
         # 兜底
         dns_servers.append(_parse_dns_server("doh-primary", "https://1.1.1.1/dns-query"))
 
+    # sing-box 1.10+: 任何域名形态的 DNS server (https/tls/quic + 域名 host) 必须
+    # 显式 domain_resolver,否则启动 fatal "missing domain resolver for domain server address"。
+    # 自动注入 bootstrap (1.1.1.1 UDP) 并给所有域名形态 server 引用。
+    import ipaddress
+    def _is_ip(host: str) -> bool:
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            return False
+    needs_bootstrap = any(
+        s.get("type") in ("https", "tls", "quic") and not _is_ip(s.get("server", ""))
+        for s in dns_servers
+    )
+    if needs_bootstrap:
+        bootstrap = {"tag": "dns-bootstrap", "type": "udp", "server": "1.1.1.1"}
+        dns_servers.insert(0, bootstrap)
+        for s in dns_servers:
+            if s["tag"] == "dns-bootstrap":
+                continue
+            if s.get("type") in ("https", "tls", "quic") and not _is_ip(s.get("server", "")):
+                s["domain_resolver"] = "dns-bootstrap"
+
     config = {
         "log": (
             {"disabled": True}
