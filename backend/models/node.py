@@ -6,7 +6,7 @@ from sqlmodel import SQLModel, Field
 
 class NodeBase(SQLModel):
     name: str = Field(index=True, description="节点别名")
-    kind: str = Field(default="landing", description="landing(落地机 sing-box) / soga(入口机)")
+    kind: str = Field(default="landing", description="landing(落地机 sing-box) / soga(入口机) / other(监控机,仅 agent)")
     host: str = Field(description="IP 或域名")
     ssh_port: int = Field(default=22)
     ssh_user: str = Field(default="root")

@@ -74,7 +74,7 @@
             <div class="title-text">
               <div class="name">
                 <span class="kind-chip" :class="`kind-${row.kind || 'landing'}`">
-                  {{ (row.kind || 'landing') === 'soga' ? '入口' : '落地' }}
+                  {{ kindLabel(row.kind) }}
                 </span>
                 <img v-if="row.country" class="flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
                 {{ row.name }}
@@ -96,6 +96,7 @@
                   {{ row.deploy_status === 'deployed' ? '重新部署' : (row.deploy_status === 'failed' ? '重试部署' : '部署') }}
                 </el-dropdown-item>
                 <el-dropdown-item
+                  v-if="(row.kind || 'landing') !== 'other'"
                   command="ss"
                   :icon="Setting"
                   :disabled="row.deploy_status !== 'deployed'"
@@ -233,6 +234,7 @@
           <el-radio-group v-model="form.kind">
             <el-radio value="landing">落地机</el-radio>
             <el-radio value="soga">入口机</el-radio>
+            <el-radio value="other">监控机</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="名称" prop="name">
@@ -387,12 +389,18 @@ const filteredNodes = computed(() => {
 const kindTabs = computed(() => {
   const landing = nodes.value.filter(n => (n.kind || 'landing') === 'landing').length
   const soga = nodes.value.filter(n => n.kind === 'soga').length
+  const other = nodes.value.filter(n => n.kind === 'other').length
   return [
     { value: 'all', label: '全部', count: nodes.value.length },
     { value: 'landing', label: '落地机', count: landing },
     { value: 'soga', label: '入口机', count: soga },
+    { value: 'other', label: '监控机', count: other },
   ]
 })
+
+function kindLabel(k) {
+  return { soga: '入口', other: '监控' }[k] || '落地'
+}
 
 const stats = computed(() => {
   let rx = 0, tx = 0, rxT = 0, txT = 0
@@ -1134,6 +1142,10 @@ onBeforeUnmount(() => {
 .kind-chip.kind-soga {
   background: #fff7ed;
   color: #ea580c;
+}
+.kind-chip.kind-other {
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 </style>

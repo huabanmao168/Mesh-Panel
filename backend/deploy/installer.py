@@ -143,7 +143,7 @@ def deploy_node(node, agent_endpoint: str) -> DeployResult:
                 agent_skip_reason = f"上传 agent 失败: {e}"
 
         # 喂 install.sh
-        install_mode = "agent_only" if getattr(node, "kind", "landing") == "soga" else "full"
+        install_mode = "agent_only" if getattr(node, "kind", "landing") in ("soga", "other") else "full"
         env_parts = [
             f"INSTALL_MODE={install_mode}",
             f"AGENT_TOKEN={shlex.quote(node.agent_token or '')}",
