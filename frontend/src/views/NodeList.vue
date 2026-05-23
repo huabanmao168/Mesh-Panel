@@ -617,9 +617,9 @@ async function removeNode(row) {
 async function uninstallNode(row) {
   try {
     await ElMessageBox.confirm(
-      `将通过 SSH 停止并清除节点「${row.name}」上的 sing-box / mesh-agent / 配置目录。面板记录会保留（状态变为「已卸载」）。`,
+      `卸载「${row.name}」?将清除 sing-box / mesh-agent。`,
       '卸载节点',
-      { type: 'warning', confirmButtonText: '执行卸载', cancelButtonText: '取消' },
+      { type: 'warning', confirmButtonText: '卸载', cancelButtonText: '取消' },
     )
   } catch { return }
 
@@ -631,7 +631,7 @@ async function uninstallNode(row) {
       await load()
     } else {
       ElMessageBox.confirm(
-        `卸载失败：${resp.data.error || '未知'}\n\n是否强制从面板删除此节点？`,
+        `${resp.data.error || '未知错误'}\n\n是否从面板强制删除?`,
         '卸载失败',
         { type: 'error', confirmButtonText: '强制删除', cancelButtonText: '保留' },
       ).then(async () => {
