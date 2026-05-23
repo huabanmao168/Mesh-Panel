@@ -254,6 +254,12 @@ def render_singbox_config(ss_cfg: dict, schema: str = "singbox-1.13") -> dict:
         "dns": {
             "servers": dns_servers,
             "strategy": ss_cfg.get("dns_strategy") or "ipv4_only",
+            # 业务查询默认走第一个非 bootstrap 的 server (DoH/DoT/DoQ),
+            # 不加 final 时 sing-box 会用 servers[0] (bootstrap UDP),DoH 形同虚设。
+            "final": next(
+                (s["tag"] for s in dns_servers if s["tag"] != "dns-bootstrap"),
+                dns_servers[0]["tag"],
+            ),
         },
         "inbounds": [],
         "outbounds": [
