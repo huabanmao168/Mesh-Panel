@@ -135,8 +135,9 @@ def _parse_landing_for_out(land) -> dict:
             "server": land.host,
             "port": int(port),
             # SoGa 要求 username/password 字段必须存在,空也得写
-            "username": cfg.get("username") or "",
-            "password": cfg.get("password") or "",
+            # 前端字段叫 socks_username/socks_password,兼容老字段 username/password
+            "username": cfg.get("socks_username") or cfg.get("username") or "",
+            "password": cfg.get("socks_password") or cfg.get("password") or "",
         }
         return out
     # 默认按 shadowsocks (SoGa 用 type="ss" + cipher=)
