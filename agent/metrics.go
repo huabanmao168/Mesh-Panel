@@ -90,6 +90,33 @@ func loadCPUInfo() {
 	case hardware != "":
 		cpuModelOnce = hardware
 	default:
+		// ARM 云机 /proc/cpuinfo 只有 CPU implementer/part hex ID
+		// device-tree/model 树莓派/SBC 有,云机为空
+		// 兜底 1: /proc/device-tree/model
+		if b, err := os.ReadFile("/proc/device-tree/model"); err == nil {
+			s := strings.TrimRight(strings.TrimSpace(string(b)), "\x00")
+			if s != "" {
+				cpuModelOnce = s
+				return
+			}
+		}
+		// 兜底 2: lscpu 的 "Model name" (能识别 Neoverse-N1/Cortex-A72 等)
+		if out, err := exec.Command("lscpu").Output(); err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				idx := strings.Index(line, ":")
+				if idx < 0 {
+					continue
+				}
+				key := strings.ToLower(strings.TrimSpace(line[:idx]))
+				if key == "model name" {
+					val := strings.TrimSpace(line[idx+1:])
+					if val != "" && val != "-" {
+						cpuModelOnce = val
+						return
+					}
+				}
+			}
+		}
 		cpuModelOnce = "unknown"
 	}
 }
