@@ -134,11 +134,10 @@ def _parse_landing_for_out(land) -> dict:
             "type": "socks",
             "server": land.host,
             "port": int(port),
+            # SoGa 要求 username/password 字段必须存在,空也得写
+            "username": cfg.get("username") or "",
+            "password": cfg.get("password") or "",
         }
-        if cfg.get("username"):
-            out["username"] = cfg["username"]
-        if cfg.get("password"):
-            out["password"] = cfg["password"]
         return out
     # 默认按 shadowsocks (SoGa 用 type="ss" + cipher=)
     return {
