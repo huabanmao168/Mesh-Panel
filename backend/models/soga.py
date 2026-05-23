@@ -22,6 +22,7 @@ class SogaInstance(SQLModel, table=True):
     folder_name: str = Field(description="如 ABC-HK")
     display_name: Optional[str] = Field(default=None, description="可选别名")
     enabled: bool = Field(default=True)
+    sort_order: int = Field(default=0, index=True, description="拖拽排序权重,小的在前,同值按 id 升序")
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

@@ -79,7 +79,15 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
         folder = s["folder"]
         inst = existing.get(folder)
         if inst is None:
-            inst = SogaInstance(node_id=node_id, folder_name=folder, enabled=True)
+            # 新实例排末尾
+            from sqlalchemy import func as _f
+            max_so = session.exec(
+                select(_f.max(SogaInstance.sort_order)).where(SogaInstance.node_id == node_id)
+            ).one() or 0
+            inst = SogaInstance(
+                node_id=node_id, folder_name=folder, enabled=True,
+                sort_order=(max_so or 0) + 10,
+            )
             session.add(inst)
             session.commit()
             session.refresh(inst)
@@ -167,11 +175,29 @@ def _match_landing_node(session: Session, out: dict) -> Optional[int]:
     return None
 
 
+@router.put("/{node_id}/instances/order")
+def reorder_instances(node_id: int, payload: dict, session: Session = Depends(get_session)):
+    """body: {ids: [3, 1, 2, ...]} — 全量当前顺序, sort_order = idx*10。"""
+    _require_soga_node(session, node_id)
+    ids = payload.get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(400, "ids 必须是整数数组")
+    updated = 0
+    for idx, iid in enumerate(ids):
+        inst = session.get(SogaInstance, iid)
+        if inst and inst.node_id == node_id:
+            inst.sort_order = idx * 10
+            session.add(inst)
+            updated += 1
+    session.commit()
+    return {"ok": True, "updated": updated}
+
+
 @router.get("/{node_id}/instances")
 def list_instances(node_id: int, session: Session = Depends(get_session)):
     node = _require_soga_node(session, node_id)
     rows = session.exec(
-        select(SogaInstance).where(SogaInstance.node_id == node_id).order_by(SogaInstance.folder_name)
+        select(SogaInstance).where(SogaInstance.node_id == node_id).order_by(SogaInstance.sort_order, SogaInstance.id)
     ).all()
     items = []
     for inst in rows:
@@ -187,6 +213,7 @@ def list_instances(node_id: int, session: Session = Depends(get_session)):
             "folder_name": inst.folder_name,
             "display_name": inst.display_name,
             "enabled": inst.enabled,
+            "sort_order": inst.sort_order,
             "route_count": cnt,
             "updated_at": inst.updated_at.isoformat() if inst.updated_at else None,
         })

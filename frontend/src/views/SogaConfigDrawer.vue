@@ -78,6 +78,7 @@
               size="small"
               class="sort-select"
             >
+              <el-option label="自定义 (拖拽)" value="custom" />
               <el-option label="按名称 A→Z" value="name" />
               <el-option label="按别名 A→Z" value="alias" />
               <el-option label="按路由数 多→少" value="routes_desc" />
@@ -103,13 +104,25 @@
                 <span class="prefix-num">{{ g.items.length }}</span>
               </button>
             </div>
-            <div class="inst-list">
+            <draggable
+              v-model="dragList"
+              :item-key="(it) => it.id || it.folder_name"
+              tag="div"
+              class="inst-list"
+              handle=".inst-drag"
+              :disabled="instSortBy !== 'custom'"
+              @end="onDragEnd"
+            >
+              <template #item="{ element: inst }">
               <div
-                v-for="inst in sortedActiveItems"
-                :key="inst.id || inst.folder_name"
                 class="inst-card"
                 :class="{ disabled: inst.enabled === false }"
               >
+                <span
+                  class="inst-drag"
+                  :class="{ disabled: instSortBy !== 'custom' }"
+                  :title="instSortBy === 'custom' ? '拖动排序' : '切到「自定义」才能拖动'"
+                >⠿</span>
                 <div class="inst-main">
                   <div class="inst-title">
                     <template v-if="editingId === inst.id">
@@ -165,7 +178,8 @@
                   @click="openRouteEditor(inst.id)"
                 >配置路由</el-button>
               </div>
-            </div>
+              </template>
+            </draggable>
           </div>
         </div>
 
@@ -182,6 +196,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Promotion, Edit } from '@element-plus/icons-vue'
 import http from '../api.js'
+import draggable from 'vuedraggable'
 import SogaRouteEditor from './SogaRouteEditor.vue'
 import SogaConfEditor from './SogaConfEditor.vue'
 
@@ -293,19 +308,22 @@ const activePrefix = ref('')
 const activeGroupItems = computed(
   () => groupedInstances.value.find(g => g.prefix === activePrefix.value)?.items || []
 )
-const instSortBy = ref(localStorage.getItem('soga_inst_sort') || 'name')
+const instSortBy = ref(localStorage.getItem('soga_inst_sort') || 'custom')
 watch(instSortBy, (v) => { try { localStorage.setItem('soga_inst_sort', v) } catch {} })
 const sortedActiveItems = computed(() => {
   const arr = [...activeGroupItems.value]
   const by = instSortBy.value
   const cmpStr = (a, b) => (a || '').localeCompare(b || '', 'zh-Hans-CN')
+  if (by === 'custom') {
+    // 后端已按 sort_order 给,这里不动
+    return arr
+  }
   if (by === 'name') {
     arr.sort((a, b) => cmpStr(a.folder_name, b.folder_name))
   } else if (by === 'alias') {
     arr.sort((a, b) => {
       const an = a.display_name || a.folder_name || ''
       const bn = b.display_name || b.folder_name || ''
-      // 有别名的排前
       if (!!a.display_name !== !!b.display_name) return a.display_name ? -1 : 1
       return cmpStr(an, bn)
     })
@@ -316,6 +334,27 @@ const sortedActiveItems = computed(() => {
   }
   return arr
 })
+
+// draggable 用本地副本,@end 后调 API 持久化
+const dragList = ref([])
+watch(sortedActiveItems, (v) => { dragList.value = [...v] }, { immediate: true })
+async function onDragEnd() {
+  if (instSortBy.value !== 'custom') return
+  if (!node.value?.id) return
+  // dragList 已是新顺序,把 sort_order 回写并调 API
+  const ids = dragList.value.map(i => i.id).filter(Boolean)
+  if (!ids.length) return
+  // 同步更新本地 instances 的 sort_order(可视上下次刷新前不抖动)
+  dragList.value.forEach((it, idx) => {
+    const local = instances.value.find(i => i.id === it.id)
+    if (local) local.sort_order = idx * 10
+  })
+  try {
+    await http.put(`/soga/${node.value.id}/instances/order`, { ids })
+  } catch (e) {
+    ElMessage.error('排序保存失败: ' + (e?.response?.data?.detail || e.message))
+  }
+}
 watch(groupedInstances, (gs) => {
   if (!gs.length) { activePrefix.value = ''; return }
   if (!gs.find(g => g.prefix === activePrefix.value)) activePrefix.value = gs[0].prefix
@@ -481,6 +520,17 @@ defineExpose({ open })
 }
 .section-head .section-title { margin-bottom: 0; }
 .sort-select { width: 150px; }
+.inst-drag {
+  cursor: grab;
+  color: #94a3b8;
+  font-size: 16px;
+  user-select: none;
+  padding: 0 4px;
+  letter-spacing: -2px;
+}
+.inst-drag:hover { color: #6366f1; }
+.inst-drag.disabled { cursor: not-allowed; opacity: 0.35; }
+.inst-drag:active { cursor: grabbing; }
 
 .entry-actions {
   display: flex;
