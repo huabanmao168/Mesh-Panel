@@ -137,6 +137,12 @@
           <el-tag v-if="row.agent_version" size="small" effect="plain" :type="agentTagType(row.agent_version)">
             agent v{{ row.agent_version }}
           </el-tag>
+          <el-tag
+            v-if="row.deploy_status === 'deployed' && row.agent_status !== 'online'"
+            size="small"
+            effect="light"
+            type="danger"
+          >agent 离线</el-tag>
         </div>
 
         <!-- 实时探针 -->
