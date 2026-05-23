@@ -86,7 +86,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.0.2"}}
+    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.0.3"}}
 
 
 app.include_router(auth_router)
