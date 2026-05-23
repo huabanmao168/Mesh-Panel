@@ -205,6 +205,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=HOME=/root
 EnvironmentFile=/opt/meshPanel/agent.env
 ExecStart=/opt/meshPanel/mesh-agent
 Restart=always

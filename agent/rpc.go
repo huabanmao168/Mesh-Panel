@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -111,6 +112,24 @@ func rpcShellExec(raw json.RawMessage) (interface{}, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", p.Cmd)
+	// systemd 启的 agent 默认没 HOME/PATH,soga 等程序读 ~/.xxx 会爆 "$HOME is not defined"
+	env := os.Environ()
+	hasHome, hasPath := false, false
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "HOME=") {
+			hasHome = true
+		}
+		if strings.HasPrefix(kv, "PATH=") {
+			hasPath = true
+		}
+	}
+	if !hasHome {
+		env = append(env, "HOME=/root")
+	}
+	if !hasPath {
+		env = append(env, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	}
+	cmd.Env = env
 	var stdoutBuf, stderrBuf cappedBuffer
 	stdoutBuf.cap = rpcMaxFileSize
 	stderrBuf.cap = rpcMaxFileSize

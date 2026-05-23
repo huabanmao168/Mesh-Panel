@@ -15,7 +15,7 @@
       <div class="brand">
         <div class="logo">MP</div>
         <div class="brand-text">
-          <div class="brand-title">MeshPanel <span class="brand-ver">v1.1.6</span></div>
+          <div class="brand-title">MeshPanel <span class="brand-ver">v1.1.7</span></div>
           <div class="brand-sub">一站式服务器管理</div>
         </div>
       </div>
