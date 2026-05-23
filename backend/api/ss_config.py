@@ -110,7 +110,9 @@ async def apply_ss(node_id: int, session: Session = Depends(get_session)):
     schema = node.config_schema or "singbox-1.13"
     singbox_json = render_singbox_config(ss, schema)
 
-    push = push_config(node, singbox_json)
+    # push_config 内部走同步 remote.* (call_sync),必须切线程,否则与主 loop 死锁
+    import asyncio
+    push = await asyncio.to_thread(push_config, node, singbox_json)
     if not push.ok:
         node.ss_apply_status = "failed"
         node.ss_apply_error = (push.error + "\n" + push.check_output)[:8000]
