@@ -322,12 +322,16 @@
           <el-descriptions-item label="ID">{{ detailNode.id }}</el-descriptions-item>
           <el-descriptions-item label="地址">{{ detailNode.host }}:{{ detailNode.ssh_port }}</el-descriptions-item>
           <el-descriptions-item label="SSH 用户">{{ detailNode.ssh_user }}</el-descriptions-item>
+          <el-descriptions-item label="类型">
+            <el-tag size="small" effect="plain">{{ kindLabel(detailNode.kind) }}</el-tag>
+          </el-descriptions-item>
           <el-descriptions-item label="部署">
             <el-tag :type="deployType(detailNode.deploy_status)" size="small">{{ deployLabel(detailNode.deploy_status) }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="sing-box">{{ detailNode.singbox_version || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailNode.kind === 'soga'" label="Soga">{{ detailNode.soga_version ? `v${detailNode.soga_version}` : '—' }}</el-descriptions-item>
+          <el-descriptions-item v-else label="sing-box">{{ detailNode.singbox_version ? `v${detailNode.singbox_version}` : '—' }}</el-descriptions-item>
           <el-descriptions-item label="架构">{{ detailNode.arch || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="config schema">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailNode.kind !== 'soga'" label="config schema">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
           <el-descriptions-item label="部署时间">{{ fmtTime(detailNode.deployed_at) }}</el-descriptions-item>
         </el-descriptions>
 
