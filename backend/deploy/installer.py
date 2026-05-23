@@ -11,6 +11,7 @@ import paramiko
 
 from config import BASE_DIR
 from ssh.client import _load_pkey
+from security.crypto import decrypt
 from deploy.scripts import INSTALL_SH
 
 DEPLOY_TIMEOUT = 240
@@ -55,9 +56,9 @@ def _connect(node) -> paramiko.SSHClient:
         look_for_keys=False,
     )
     if node.auth_type == "password":
-        kwargs["password"] = node.ssh_password
+        kwargs["password"] = decrypt(node.ssh_password)
     elif node.auth_type == "key":
-        kwargs["pkey"] = _load_pkey(node.ssh_private_key or "")
+        kwargs["pkey"] = _load_pkey(decrypt(node.ssh_private_key) or "")
     else:
         raise ValueError(f"未知认证方式: {node.auth_type}")
     client.connect(**kwargs)
@@ -142,7 +143,9 @@ def deploy_node(node, agent_endpoint: str) -> DeployResult:
                 agent_skip_reason = f"上传 agent 失败: {e}"
 
         # 喂 install.sh
+        install_mode = "agent_only" if getattr(node, "kind", "landing") == "soga" else "full"
         env_parts = [
+            f"INSTALL_MODE={install_mode}",
             f"AGENT_TOKEN={shlex.quote(node.agent_token or '')}",
             f"AGENT_ENDPOINT={shlex.quote(agent_endpoint or '')}",
             f"AGENT_NODE_ID={node.id}",

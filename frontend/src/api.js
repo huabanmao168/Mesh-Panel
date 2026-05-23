@@ -48,6 +48,7 @@ export const nodeApi = {
   redeployAgentConfig: (id) => http.post(`/nodes/${id}/agent/redeploy-config`),
   agentReload: (id) => http.post(`/nodes/${id}/agent/reload`),
   uninstall: (id, payload) => http.post(`/nodes/${id}/uninstall`, payload, { timeout: 90000 }),
+  reorder: (ids) => http.put('/nodes/order', { ids }),
 }
 
 export const settingsApi = {

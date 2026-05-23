@@ -30,8 +30,23 @@ def _err(msg: str):
 
 @router.get("")
 def list_nodes(session: Session = Depends(get_session)):
-    nodes = session.exec(select(Node).order_by(Node.id)).all()
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     return _ok([NodeRead.from_node(n).model_dump(mode="json") for n in nodes])
+
+
+@router.put("/order")
+def reorder_nodes(payload: dict, session: Session = Depends(get_session)):
+    """body: {ids: [3, 1, 2, ...]} — 全量传当前顺序, sort_order 按数组下标 *10 写入。"""
+    ids = payload.get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(400, "ids 必须是整数数组")
+    for idx, nid in enumerate(ids):
+        node = session.get(Node, nid)
+        if node:
+            node.sort_order = idx * 10
+            session.add(node)
+    session.commit()
+    return _ok({"updated": len(ids)})
 
 
 @router.get("/metrics")
@@ -45,6 +60,12 @@ def create_node(payload: NodeCreate, session: Session = Depends(get_session)):
     if payload.auth_type not in ("password", "key"):
         raise HTTPException(400, "auth_type 必须是 password 或 key")
     node = Node(**payload.model_dump())
+    # 凭据落库前加密
+    from security.crypto import encrypt as _enc
+    if node.ssh_password:
+        node.ssh_password = _enc(node.ssh_password)
+    if node.ssh_private_key:
+        node.ssh_private_key = _enc(node.ssh_private_key)
     session.add(node)
     session.commit()
     session.refresh(node)
@@ -68,6 +89,12 @@ async def update_node(node_id: int, payload: NodeUpdate, session: Session = Depe
     if "auth_type" in changes and changes["auth_type"] not in ("password", "key"):
         raise HTTPException(400, "auth_type 必须是 password 或 key")
     iface_changed = "agent_iface" in changes and changes["agent_iface"] != node.agent_iface
+    # 凭据字段如果传了,加密后再写
+    from security.crypto import encrypt as _enc
+    if "ssh_password" in changes and changes["ssh_password"]:
+        changes["ssh_password"] = _enc(changes["ssh_password"])
+    if "ssh_private_key" in changes and changes["ssh_private_key"]:
+        changes["ssh_private_key"] = _enc(changes["ssh_private_key"])
     for k, v in changes.items():
         setattr(node, k, v)
     node.updated_at = datetime.utcnow()

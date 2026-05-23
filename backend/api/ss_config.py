@@ -139,10 +139,12 @@ async def apply_ss(node_id: int, session: Session = Depends(get_session)):
                 allow_agent=False, look_for_keys=False,
             )
             if node.auth_type == "password":
-                kwargs["password"] = node.ssh_password
+                from security.crypto import decrypt as _dec
+                kwargs["password"] = _dec(node.ssh_password)
             else:
                 from ssh.client import _load_pkey
-                kwargs["pkey"] = _load_pkey(node.ssh_private_key or "")
+                from security.crypto import decrypt as _dec
+                kwargs["pkey"] = _load_pkey(_dec(node.ssh_private_key) or "")
             client.connect(**kwargs)
             _, stdout, stderr = client.exec_command(
                 "systemctl reload sing-box || systemctl restart sing-box", timeout=15

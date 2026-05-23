@@ -25,23 +25,57 @@
       </div>
     </div>
 
+    <!-- 节点分类 tabs -->
+    <div class="kind-tabs">
+      <button
+        v-for="t in kindTabs"
+        :key="t.value"
+        class="kind-tab"
+        :class="{ active: kindFilter === t.value }"
+        @click="kindFilter = t.value"
+      >
+        {{ t.label }}
+        <span class="kind-tab-count">{{ t.count }}</span>
+      </button>
+    </div>
+
     <!-- 空状态 -->
     <el-empty
-      v-if="!loading && nodes.length === 0"
-      description="还没有节点，点右上角添加一个"
+      v-if="!loading && filteredNodes.length === 0"
+      :description="nodes.length === 0 ? '还没有节点,点右上角添加一个' : '此分类下暂无节点'"
       class="empty"
     >
-      <el-button type="primary" @click="openCreate">添加第一个节点</el-button>
+      <el-button v-if="nodes.length === 0" type="primary" @click="openCreate">添加第一个节点</el-button>
     </el-empty>
 
     <!-- 卡片视图 -->
-    <div v-else class="grid" v-loading="loading && nodes.length === 0">
-      <div v-for="row in nodes" :key="row.id" class="card" :class="{ 'card-online': row.agent_status === 'online' }">
+    <draggable
+      v-else
+      v-model="nodes"
+      class="grid"
+      item-key="id"
+      handle=".drag-handle"
+      :animation="180"
+      ghost-class="drag-ghost"
+      :disabled="kindFilter !== 'all'"
+      @end="onDragEnd"
+      v-loading="loading && nodes.length === 0"
+    >
+      <template #item="{ element: row }">
+      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="card" :class="{ 'card-online': row.agent_status === 'online' }">
         <div class="card-head">
+          <span
+            class="drag-handle"
+            :class="{ disabled: kindFilter !== 'all' }"
+            :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'"
+          >⠿</span>
           <div class="card-title">
             <span class="dot" :class="row.agent_status === 'online' ? 'online' : 'offline'" />
             <div class="title-text">
               <div class="name">
+                <span class="kind-chip" :class="`kind-${row.kind || 'landing'}`">
+                  {{ (row.kind || 'landing') === 'soga' ? '入口' : '落地' }}
+                </span>
                 <img v-if="row.country" class="flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
                 {{ row.name }}
               </div>
@@ -96,6 +130,9 @@
           </el-tag>
           <el-tag v-if="row.singbox_version" size="small" effect="plain">
             sing-box v{{ row.singbox_version }}
+          </el-tag>
+          <el-tag v-if="row.soga_version" size="small" effect="plain">
+            Soga v{{ row.soga_version }}
           </el-tag>
           <el-tag v-if="row.agent_version" size="small" effect="plain" type="info">
             agent v{{ row.agent_version }}
@@ -180,7 +217,8 @@
           >{{ row.deploy_status === 'failed' ? '重试部署' : '部署' }}</el-button>
         </div>
       </div>
-    </div>
+      </template>
+    </draggable>
 
     <!-- 新增/编辑 -->
     <el-drawer
@@ -191,6 +229,12 @@
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" class="edit-form">
         <div class="section-title">基础信息</div>
+        <el-form-item label="类型" prop="kind">
+          <el-radio-group v-model="form.kind">
+            <el-radio value="landing">落地机</el-radio>
+            <el-radio value="soga">入口机</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="名称" prop="name">
           <el-input v-model="form.name" placeholder="例如:东京 1 号" />
         </el-form-item>
@@ -298,6 +342,7 @@
     </el-drawer>
 
     <SSConfigDrawer ref="ssDrawerRef" />
+    <SogaConfigDrawer ref="sogaDrawerRef" />
   </div>
 </template>
 
@@ -310,10 +355,14 @@ import {
   Top, Bottom, Cpu, Loading,
 } from '@element-plus/icons-vue'
 import { nodeApi } from '../api.js'
+import draggable from 'vuedraggable'
 import SSConfigDrawer from './SSConfigDrawer.vue'
+import SogaConfigDrawer from './SogaConfigDrawer.vue'
 
 const ssDrawerRef = ref(null)
+const sogaDrawerRef = ref(null)
 const nodes = ref([])
+const kindFilter = ref('all')   // all | landing | soga
 const metrics = ref({})  // node_id -> { rx_bps, tx_bps, cpu_pct, mem_used, mem_total, uptime_sec, iface }
 const loading = ref(false)
 const dialogOpen = ref(false)
@@ -329,6 +378,21 @@ const logText = ref('')
 
 const winW = ref(window.innerWidth)
 const drawerSize = computed(() => winW.value < 720 ? '92%' : '560px')
+
+const filteredNodes = computed(() => {
+  if (kindFilter.value === 'all') return nodes.value
+  return nodes.value.filter(n => (n.kind || 'landing') === kindFilter.value)
+})
+
+const kindTabs = computed(() => {
+  const landing = nodes.value.filter(n => (n.kind || 'landing') === 'landing').length
+  const soga = nodes.value.filter(n => n.kind === 'soga').length
+  return [
+    { value: 'all', label: '全部', count: nodes.value.length },
+    { value: 'landing', label: '落地机', count: landing },
+    { value: 'soga', label: '入口机', count: soga },
+  ]
+})
 
 const stats = computed(() => {
   let rx = 0, tx = 0, rxT = 0, txT = 0
@@ -352,6 +416,7 @@ const stats = computed(() => {
 })
 
 const emptyForm = () => ({
+  kind: 'landing',
   name: '', host: '', ssh_port: 22, ssh_user: 'root',
   auth_type: 'password', ssh_password: '', ssh_private_key: '',
   agent_iface: '',
@@ -399,6 +464,16 @@ async function load(silent = false) {
     nodes.value = (resp.data || []).map((n) => ({ ...n, _deploying: false }))
   } finally {
     loading.value = false
+  }
+}
+
+async function onDragEnd(evt) {
+  if (evt.oldIndex === evt.newIndex) return
+  try {
+    await nodeApi.reorder(nodes.value.map((n) => n.id))
+  } catch (e) {
+    ElMessage.error('排序保存失败,已刷新')
+    load(true)
   }
 }
 
@@ -480,6 +555,7 @@ defineExpose({ openCreate })
 function openEdit(row) {
   resetForm()
   editingId.value = row.id
+  form.kind = row.kind || 'landing'
   form.name = row.name
   form.host = row.host
   form.ssh_port = row.ssh_port
@@ -495,6 +571,7 @@ async function save() {
   saving.value = true
   try {
     const payload = {
+      kind: form.kind || 'landing',
       name: form.name, host: form.host, ssh_port: form.ssh_port,
       ssh_user: form.ssh_user, auth_type: form.auth_type,
       agent_iface: form.agent_iface || null,
@@ -586,7 +663,13 @@ async function deployNode(row) {
   }
 }
 
-function openSSConfig(row) { ssDrawerRef.value?.open(row.id) }
+function openSSConfig(row) {
+  if ((row.kind || 'landing') === 'soga') {
+    sogaDrawerRef.value?.open(row.id)
+  } else {
+    ssDrawerRef.value?.open(row.id)
+  }
+}
 
 async function openDetail(row) {
   detailNode.value = row
@@ -765,8 +848,26 @@ onBeforeUnmount(() => {
 }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
+  gap: 6px;
 }
-.card-title { display: flex; align-items: center; gap: 8px; }
+.drag-handle {
+  cursor: grab;
+  color: #c0c4cc;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 2px;
+  user-select: none;
+  transition: color .12s;
+}
+.drag-handle:hover { color: #6366f1; }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle.disabled { cursor: not-allowed; color: #e5e7eb; }
+.drag-ghost {
+  opacity: 0.4;
+  background: #f5f3ff !important;
+  border: 1px dashed #a5b4fc !important;
+}
+.card-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .name { font-weight: 600; color: #111827; font-size: 15px; }
 .more-btn { padding: 4px 8px; }
 .card-addr {
@@ -968,4 +1069,71 @@ onBeforeUnmount(() => {
   .stat-num { font-size: 18px; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
 }
+/* ─── 节点分类 tabs ─── */
+.kind-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 4px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  width: fit-content;
+}
+.kind-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  border-radius: 7px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background .15s, color .15s;
+  font-family: inherit;
+}
+.kind-tab:hover { color: #1f2937; }
+.kind-tab.active {
+  background: #fff;
+  color: #1f2937;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.kind-tab-count {
+  font-size: 11.5px;
+  color: #9ca3af;
+  background: #e5e7eb;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.kind-tab.active .kind-tab-count {
+  background: #eef2ff;
+  color: #6366f1;
+}
+
+/* ─── kind 徽章(卡片左上角) ─── */
+.kind-chip {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
+  vertical-align: 1px;
+  letter-spacing: 0.3px;
+  line-height: 1.5;
+}
+.kind-chip.kind-landing {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.kind-chip.kind-soga {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
 </style>

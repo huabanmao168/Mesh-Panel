@@ -12,6 +12,7 @@ from database import init_db
 from api.nodes import router as nodes_router
 from api.settings import router as settings_router
 from api.ss_config import router as ss_router
+from api.soga import router as soga_router
 from api.auth import router as auth_router, is_whitelisted, check_auth
 from ws.agents import router as ws_router, sweep_offline_loop
 
@@ -19,6 +20,13 @@ from ws.agents import router as ws_router, sweep_offline_loop
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 一次性把存量明文凭据升级为密文
+    try:
+        from security.crypto import migrate_plaintext_credentials
+        migrate_plaintext_credentials()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("凭据加密迁移失败: %s", e)
     sweep_task = asyncio.create_task(sweep_offline_loop())
     try:
         yield
@@ -78,13 +86,14 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "data": {"service": "MeshPanel", "version": "0.0.3"}}
+    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.0.0"}}
 
 
 app.include_router(auth_router)
 app.include_router(nodes_router)
 app.include_router(settings_router)
 app.include_router(ss_router)
+app.include_router(soga_router)
 app.include_router(ws_router)
 
 

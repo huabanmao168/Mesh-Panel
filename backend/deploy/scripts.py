@@ -26,6 +26,18 @@ case "$(uname -m)" in
 esac
 echo "[1/10] arch=$ARCH"
 
+# INSTALL_MODE=full(默认) | agent_only
+INSTALL_MODE="${INSTALL_MODE:-full}"
+echo "    mode=$INSTALL_MODE"
+
+if [ "$INSTALL_MODE" = "agent_only" ]; then
+  mkdir -p /opt/meshPanel
+  # 入口机:不装 sing-box,占位变量供结果使用
+  VER=""
+  SB_STATUS="skipped"
+  echo "[2/10] skip sing-box install (agent_only mode)"
+else
+
 # ---------- 2. 解析最新版本 ----------
 echo "[2/10] resolving latest sing-box version..."
 if command -v curl >/dev/null 2>&1; then
@@ -147,6 +159,8 @@ fi
 sleep 1
 SB_STATUS=$(systemctl is-active sing-box.service || true)
 echo "    sing-box status: $SB_STATUS"
+
+fi   # end if INSTALL_MODE != agent_only
 
 # ---------- 7. agent.env（总是覆盖，token/endpoint 可能变）----------
 NEW_ENV=$(mktemp)
