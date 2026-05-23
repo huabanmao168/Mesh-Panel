@@ -24,7 +24,7 @@ def list_settings(session: Session = Depends(get_session)):
     return {"ok": True, "data": data}
 
 
-def _validate(payload: dict) -> None:
+def _validate(payload: dict, session: Session = None) -> None:
     """改写前的字段合法性校验。"""
     if "panel_port" in payload:
         try:
@@ -39,10 +39,17 @@ def _validate(payload: dict) -> None:
         if not h:
             raise HTTPException(400, "panel_host 不能为空")
 
-    if "tls_enabled" in payload and str(payload["tls_enabled"]) == "1":
-        # 启用 TLS 时,证书路径必须存在
-        cert = payload.get("tls_cert_path") or _read(payload, "tls_cert_path")
-        key = payload.get("tls_key_path") or _read(payload, "tls_key_path")
+    if "tls_enabled" in payload and str(payload["tls_enabled"]) in ("1", "true", "True"):
+        # 启用 TLS 时,证书路径必须存在(payload 没传就回落到 DB 现值)
+        cert = _read(payload, "tls_cert_path")
+        key = _read(payload, "tls_key_path")
+        if (not cert or not key) and session is not None:
+            if not cert:
+                row = session.get(Setting, "tls_cert_path")
+                cert = (row.value if row else "") or ""
+            if not key:
+                row = session.get(Setting, "tls_key_path")
+                key = (row.value if row else "") or ""
         if not cert or not key:
             raise HTTPException(400, "启用 TLS 前请先上传证书和私钥")
 
@@ -53,7 +60,7 @@ def _read(payload: dict, key: str) -> str:
 
 @router.patch("")
 def update_settings(payload: dict, session: Session = Depends(get_session)):
-    _validate(payload)
+    _validate(payload, session)
     now = datetime.utcnow()
     for k, v in payload.items():
         if k not in DEFAULTS:
