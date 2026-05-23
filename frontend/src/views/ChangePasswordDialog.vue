@@ -1,6 +1,6 @@
 <template>
   <el-dialog v-model="open" title="修改密码" width="420px" @closed="reset">
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="84px">
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="84px" @submit.prevent>
       <el-form-item label="原密码" prop="old_password">
         <el-input v-model="form.old_password" type="password" show-password />
       </el-form-item>

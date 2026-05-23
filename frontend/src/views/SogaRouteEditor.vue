@@ -9,7 +9,7 @@
     :before-close="onBeforeClose"
   >
     <div v-loading="loading" class="ss-form">
-      <el-form label-width="92px" label-position="right">
+      <el-form label-width="92px" label-position="right" @submit.prevent>
 
         <!-- 路由列表 -->
         <div class="section">

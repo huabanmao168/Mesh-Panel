@@ -35,7 +35,7 @@ def lookup_country(host: str, timeout: float = 4.0) -> Optional[str]:
     try:
         req = urllib.request.Request(
             f"http://ip-api.com/json/{ip}?fields=status,countryCode",
-            headers={"User-Agent": "MeshPanel/1.0.3"},
+            headers={"User-Agent": "MeshPanel/1.0.4"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8"))

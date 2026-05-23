@@ -8,7 +8,7 @@
     class="soga-drawer"
   >
     <div v-loading="loadingNode" class="ss-form">
-      <el-form label-width="92px" label-position="right">
+      <el-form label-width="92px" label-position="right" @submit.prevent>
 
         <!-- 入口机 -->
         <div class="section">

@@ -227,7 +227,7 @@
       :size="drawerSize"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" class="edit-form">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px" class="edit-form" @submit.prevent>
         <div class="section-title">基础信息</div>
         <el-form-item label="类型" prop="kind">
           <el-radio-group v-model="form.kind">

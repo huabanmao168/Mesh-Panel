@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from config import BASE_DIR
@@ -63,10 +63,8 @@ async def host_guard_middleware(request: Request, call_next):
             host = (request.headers.get("host") or "").split(":")[0].lower()
             client_ip = request.client.host if request.client else ""
             if host != domain.lower() and client_ip not in ("127.0.0.1", "::1", "localhost"):
-                return JSONResponse(
-                    {"ok": False, "error": f"此面板仅允许通过域名 {domain} 访问"},
-                    status_code=403,
-                )
+                # 静默拒绝:不回显域名,直接空响应 + 444 风格断连
+                return Response(status_code=444)
     return await call_next(request)
 
 
@@ -86,7 +84,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.0.3"}}
+    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.0.4"}}
 
 
 app.include_router(auth_router)

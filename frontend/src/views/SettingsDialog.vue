@@ -1,6 +1,6 @@
 <template>
   <el-drawer v-model="visible" title="系统设置" size="580px" @open="load">
-    <el-form :model="form" label-width="120px" v-loading="loading" class="settings-form">
+    <el-form :model="form" label-width="120px" v-loading="loading" class="settings-form" @submit.prevent>
       <!-- ===== 分区:面板访问 ===== -->
       <div class="section-title">面板访问</div>
 

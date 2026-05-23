@@ -9,7 +9,7 @@
     @open="load"
   >
     <div v-loading="loading" class="ss-form">
-      <el-form :model="form" label-width="92px" label-position="right">
+      <el-form :model="form" label-width="92px" label-position="right" @submit.prevent>
         <!-- 基础 -->
         <div class="section">
           <div class="section-title">基础</div>
