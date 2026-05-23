@@ -134,7 +134,7 @@
           <el-tag v-if="row.soga_version" size="small" effect="plain">
             Soga v{{ row.soga_version }}
           </el-tag>
-          <el-tag v-if="row.agent_version" size="small" effect="plain" type="info">
+          <el-tag v-if="row.agent_version" size="small" effect="plain" :type="agentTagType(row.agent_version)">
             agent v{{ row.agent_version }}
           </el-tag>
         </div>
@@ -403,6 +403,22 @@ const kindTabs = computed(() => {
 
 function kindLabel(k) {
   return { soga: '入口', other: '监控' }[k] || '落地'
+}
+
+// 面板版本(从 /api/health 拉),用于和 agent 版本对比着色
+const panelVersion = ref('')
+function cmpVersion(a, b) {
+  const pa = String(a || '').split('.').map((x) => parseInt(x, 10) || 0)
+  const pb = String(b || '').split('.').map((x) => parseInt(x, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return d < 0 ? -1 : 1
+  }
+  return 0
+}
+function agentTagType(agentVer) {
+  if (!agentVer || !panelVersion.value) return 'success'
+  return cmpVersion(agentVer, panelVersion.value) < 0 ? 'danger' : 'success'
 }
 
 const stats = computed(() => {
@@ -714,6 +730,10 @@ let metricsTimer = null
 onMounted(() => {
   load()
   loadMetrics()
+  // 拉一下面板版本,用于 agent 版本对比着色
+  fetch('/api/health').then((r) => r.json()).then((j) => {
+    panelVersion.value = j?.data?.version || ''
+  }).catch(() => {})
   window.addEventListener('resize', onResize)
   timer = setInterval(() => {
     if (!loading.value && !saving.value) load(true)
