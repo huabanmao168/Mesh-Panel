@@ -62,7 +62,7 @@
       v-loading="loading && nodes.length === 0"
     >
       <template #item="{ element: row }">
-      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="card" :class="{ 'card-online': row.agent_status === 'online' }">
+      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
         <div class="card-head">
           <span
             class="drag-handle"
@@ -128,6 +128,13 @@
           <el-tag :type="deployType(row.deploy_status)" size="small" effect="light">
             {{ deployLabel(row.deploy_status) }}
           </el-tag>
+          <el-tag
+            v-if="row.deploy_status === 'deployed' && row.agent_status !== 'online'"
+            size="small"
+            effect="dark"
+            type="danger"
+            class="tag-offline"
+          ><span class="offline-dot"></span>agent 离线</el-tag>
           <el-tag v-if="row.singbox_version" size="small" effect="plain">
             sing-box v{{ row.singbox_version }}
           </el-tag>
@@ -137,12 +144,6 @@
           <el-tag v-if="row.agent_version" size="small" effect="plain" :type="agentTagType(row.agent_version)">
             agent v{{ row.agent_version }}
           </el-tag>
-          <el-tag
-            v-if="row.deploy_status === 'deployed' && row.agent_status !== 'online'"
-            size="small"
-            effect="light"
-            type="danger"
-          >agent 离线</el-tag>
         </div>
 
         <!-- 实时探针 -->
@@ -886,6 +887,36 @@ onBeforeUnmount(() => {
 }
 .card-online::before {
   background: linear-gradient(90deg, #10b981, #6366f1);
+}
+.card-offline {
+  border-color: #fecaca;
+  background: #fffbfb;
+}
+.card-offline::before {
+  background: #ef4444;
+}
+.tag-offline {
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  animation: offline-pulse 1.6s ease-in-out infinite;
+}
+.offline-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  margin-right: 5px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 0 rgba(255,255,255,0.7);
+  animation: offline-dot-pulse 1.2s ease-in-out infinite;
+}
+@keyframes offline-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+}
+@keyframes offline-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
 }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
