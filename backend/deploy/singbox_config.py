@@ -313,8 +313,15 @@ def render_singbox_config(ss_cfg: dict, schema: str = "singbox-1.13") -> dict:
             config["inbounds"].append(inbound)
 
     # 1.12+ 要求 outbound dial 显式指定 domain resolver
+    # 优先用 DoH/DoT/DoQ 主服务器,而不是 bootstrap;否则业务流量 dial 时
+    # 域名解析走的是 1.1.1.1 裸 UDP,DoH 形同虚设。
+    # bootstrap 仅用于打破 DoH 自身域名的鸡蛋问题(通过 server.domain_resolver 链式引用)。
+    primary_tag = next(
+        (s["tag"] for s in dns_servers if s["tag"] != "dns-bootstrap"),
+        dns_servers[0]["tag"],
+    )
     config["route"] = {
-        "default_domain_resolver": dns_servers[0]["tag"],
+        "default_domain_resolver": primary_tag,
     }
 
     if ss_cfg.get("enabled"):
