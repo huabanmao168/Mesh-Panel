@@ -70,7 +70,6 @@
             :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'"
           >⠿</span>
           <div class="card-title">
-            <span class="dot" :class="row.agent_status === 'online' ? 'online' : 'offline'" />
             <div class="title-text">
               <div class="name">
                 <span class="kind-chip" :class="`kind-${row.kind || 'landing'}`">
@@ -848,11 +847,15 @@ onBeforeUnmount(() => {
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.08);
   transform: translateY(-1px);
 }
-.card-online::before {
+.card::before {
   content: '';
   position: absolute; top: 0; left: 16px; right: 16px; height: 2px;
-  background: linear-gradient(90deg, #10b981, #6366f1);
+  background: #e5e7eb;
   border-radius: 2px;
+  transition: background 0.3s;
+}
+.card-online::before {
+  background: linear-gradient(90deg, #10b981, #6366f1);
 }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1144,8 +1147,8 @@ onBeforeUnmount(() => {
   color: #ea580c;
 }
 .kind-chip.kind-other {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: #ecfeff;
+  color: #0891b2;
 }
 
 </style>
