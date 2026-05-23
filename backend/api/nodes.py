@@ -66,6 +66,10 @@ def create_node(payload: NodeCreate, session: Session = Depends(get_session)):
         node.ssh_password = _enc(node.ssh_password)
     if node.ssh_private_key:
         node.ssh_private_key = _enc(node.ssh_private_key)
+    # 新节点排末尾: sort_order = 当前最大 + 10
+    from sqlalchemy import func
+    max_so = session.exec(select(func.max(Node.sort_order))).one() or 0
+    node.sort_order = (max_so or 0) + 10
     session.add(node)
     session.commit()
     session.refresh(node)
