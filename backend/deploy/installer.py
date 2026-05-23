@@ -3,6 +3,7 @@ import io
 import json
 import re
 import shlex
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -14,7 +15,8 @@ from ssh.client import _load_pkey
 from security.crypto import decrypt
 from deploy.scripts import INSTALL_SH
 
-DEPLOY_TIMEOUT = 240
+DEPLOY_TIMEOUT = 600  # 总耗时墙钟超时(秒) — 10 分钟硬上限
+DEPLOY_IDLE_TIMEOUT = 180  # 静默超时(秒) — 3 分钟没任何输出视为卡死
 LOG_MAX_BYTES = 16 * 1024
 RESULT_MARKER = "---MESH-PANEL-RESULT---"
 
@@ -176,23 +178,57 @@ def deploy_node(node, agent_endpoint: str) -> DeployResult:
 
         transport = client.get_transport()
         channel = transport.open_session()
-        channel.settimeout(DEPLOY_TIMEOUT)
+        channel.settimeout(30)  # 单次 recv 阻塞超时,只用来让 select 周期性返回
         channel.exec_command(cmd)
         channel.sendall(INSTALL_SH.encode("utf-8"))
         channel.shutdown_write()
 
         buf_out = io.BytesIO()
         buf_err = io.BytesIO()
+        start_ts = time.monotonic()
+        last_io_ts = start_ts
+        timeout_reason = ""
         while True:
             wrote = False
-            if channel.recv_ready():
-                buf_out.write(channel.recv(65536))
-                wrote = True
-            if channel.recv_stderr_ready():
-                buf_err.write(channel.recv_stderr(65536))
-                wrote = True
+            try:
+                if channel.recv_ready():
+                    buf_out.write(channel.recv(65536))
+                    wrote = True
+                if channel.recv_stderr_ready():
+                    buf_err.write(channel.recv_stderr(65536))
+                    wrote = True
+            except Exception:  # noqa: BLE001
+                # recv 超时/异常时继续走墙钟判断
+                pass
+            if wrote:
+                last_io_ts = time.monotonic()
             if channel.exit_status_ready() and not wrote:
                 break
+            now = time.monotonic()
+            if now - start_ts > DEPLOY_TIMEOUT:
+                timeout_reason = f"部署总耗时超过 {DEPLOY_TIMEOUT}s,强制中断"
+                break
+            if now - last_io_ts > DEPLOY_IDLE_TIMEOUT:
+                timeout_reason = f"install.sh {DEPLOY_IDLE_TIMEOUT}s 无任何输出,判定卡死"
+                break
+            if not wrote:
+                time.sleep(0.5)
+
+        if timeout_reason:
+            try:
+                channel.close()
+            except Exception:  # noqa: BLE001
+                pass
+            partial_out = buf_out.getvalue().decode("utf-8", errors="replace")
+            partial_err = buf_err.getvalue().decode("utf-8", errors="replace")
+            log = partial_out
+            if partial_err:
+                log += "\n--- stderr ---\n" + partial_err
+            if agent_skip_reason:
+                log = f"[agent] {agent_skip_reason}\n\n" + log
+            if len(log) > LOG_MAX_BYTES:
+                log = "...(truncated)...\n" + log[-LOG_MAX_BYTES:]
+            return DeployResult(ok=False, log=log, error=timeout_reason)
 
         while channel.recv_ready():
             buf_out.write(channel.recv(65536))
