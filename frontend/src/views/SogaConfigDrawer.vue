@@ -70,7 +70,20 @@
 
         <!-- 实例列表 -->
         <div class="section">
-          <div class="section-title">Soga 实例</div>
+          <div class="section-head">
+            <div class="section-title">Soga 实例</div>
+            <el-select
+              v-if="instances.length"
+              v-model="instSortBy"
+              size="small"
+              class="sort-select"
+            >
+              <el-option label="按名称 A→Z" value="name" />
+              <el-option label="按别名 A→Z" value="alias" />
+              <el-option label="按路由数 多→少" value="routes_desc" />
+              <el-option label="按路由数 少→多" value="routes_asc" />
+            </el-select>
+          </div>
 
           <div v-if="!instances.length && !scanning" class="empty-state">
             点上方「加载配置」拉取入口机上的实例
@@ -92,7 +105,7 @@
             </div>
             <div class="inst-list">
               <div
-                v-for="inst in activeGroupItems"
+                v-for="inst in sortedActiveItems"
                 :key="inst.id || inst.folder_name"
                 class="inst-card"
                 :class="{ disabled: inst.enabled === false }"
@@ -280,6 +293,29 @@ const activePrefix = ref('')
 const activeGroupItems = computed(
   () => groupedInstances.value.find(g => g.prefix === activePrefix.value)?.items || []
 )
+const instSortBy = ref(localStorage.getItem('soga_inst_sort') || 'name')
+watch(instSortBy, (v) => { try { localStorage.setItem('soga_inst_sort', v) } catch {} })
+const sortedActiveItems = computed(() => {
+  const arr = [...activeGroupItems.value]
+  const by = instSortBy.value
+  const cmpStr = (a, b) => (a || '').localeCompare(b || '', 'zh-Hans-CN')
+  if (by === 'name') {
+    arr.sort((a, b) => cmpStr(a.folder_name, b.folder_name))
+  } else if (by === 'alias') {
+    arr.sort((a, b) => {
+      const an = a.display_name || a.folder_name || ''
+      const bn = b.display_name || b.folder_name || ''
+      // 有别名的排前
+      if (!!a.display_name !== !!b.display_name) return a.display_name ? -1 : 1
+      return cmpStr(an, bn)
+    })
+  } else if (by === 'routes_desc') {
+    arr.sort((a, b) => (b.route_count ?? -1) - (a.route_count ?? -1) || cmpStr(a.folder_name, b.folder_name))
+  } else if (by === 'routes_asc') {
+    arr.sort((a, b) => (a.route_count ?? 1e9) - (b.route_count ?? 1e9) || cmpStr(a.folder_name, b.folder_name))
+  }
+  return arr
+})
 watch(groupedInstances, (gs) => {
   if (!gs.length) { activePrefix.value = ''; return }
   if (!gs.find(g => g.prefix === activePrefix.value)) activePrefix.value = gs[0].prefix
@@ -444,6 +480,7 @@ defineExpose({ open })
   gap: 12px;
 }
 .section-head .section-title { margin-bottom: 0; }
+.sort-select { width: 150px; }
 
 .entry-actions {
   display: flex;
