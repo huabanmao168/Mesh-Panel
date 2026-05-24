@@ -261,12 +261,34 @@
         </div>
 
         <div class="rc-metrics" v-if="metrics[row.id]">
-          <div class="rc-m"><div class="rc-m-label">CPU</div><div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(1) }}%</div></div>
-          <div class="rc-m"><div class="rc-m-label">内存</div><div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div></div>
-          <div class="rc-m" v-if="metrics[row.id].swap_total"><div class="rc-m-label">Swap</div><div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div></div>
-          <div class="rc-m" v-if="metrics[row.id].disk_total"><div class="rc-m-label">存储</div><div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div></div>
-          <div class="rc-m"><div class="rc-m-label">上传</div><div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div></div>
-          <div class="rc-m"><div class="rc-m-label">下载</div><div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div></div>
+          <div class="rc-m">
+            <div class="rc-m-label">CPU</div>
+            <div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(1) }}%</div>
+            <div class="rc-bar"><span :class="loadLevel(metrics[row.id].cpu_pct)" :style="{ width: Math.min(metrics[row.id].cpu_pct, 100) + '%' }" /></div>
+          </div>
+          <div class="rc-m">
+            <div class="rc-m-label">内存</div>
+            <div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div>
+            <div class="rc-bar"><span :class="loadLevel(memPct(row.id))" :style="{ width: Math.min(memPct(row.id), 100) + '%' }" /></div>
+          </div>
+          <div class="rc-m" v-if="metrics[row.id].swap_total">
+            <div class="rc-m-label">Swap</div>
+            <div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div>
+            <div class="rc-bar"><span :class="loadLevel(swapPct(row.id))" :style="{ width: Math.min(swapPct(row.id), 100) + '%' }" /></div>
+          </div>
+          <div class="rc-m" v-if="metrics[row.id].disk_total">
+            <div class="rc-m-label">存储</div>
+            <div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div>
+            <div class="rc-bar"><span :class="loadLevel(diskPct(row.id))" :style="{ width: Math.min(diskPct(row.id), 100) + '%' }" /></div>
+          </div>
+          <div class="rc-m">
+            <div class="rc-m-label">上传</div>
+            <div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div>
+          </div>
+          <div class="rc-m">
+            <div class="rc-m-label">下载</div>
+            <div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div>
+          </div>
         </div>
         <div v-else-if="row.agent_status === 'online'" class="rc-metrics-empty">
           <el-icon class="loading-icon"><Loading /></el-icon> 正在采样...
@@ -1131,28 +1153,42 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-start;
-  gap: 16px;
+  gap: 18px;
   min-width: 0;
 }
 .rc-metrics .rc-m {
-  min-width: 0;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-width: 56px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   flex: 0 0 auto;
 }
 .rc-m-label {
-  font-size: 10px; color: #9ca3af; letter-spacing: 0.04em; line-height: 1.1;
-  text-transform: none;
+  font-size: 11px; color: #9ca3af; letter-spacing: 0.02em; line-height: 1;
 }
 .rc-m-val {
-  font-size: 13px; font-weight: 600;
+  font-size: 14px; font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #16a34a;
   white-space: nowrap;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 .rc-m-val.lv-warn   { color: #d97706; }
 .rc-m-val.lv-danger { color: #dc2626; }
+.rc-bar {
+  width: 56px; height: 3px;
+  background: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 1px;
+}
+.rc-bar > span {
+  display: block; height: 100%;
+  background: #16a34a;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.rc-bar > span.lv-warn   { background: #d97706; }
+.rc-bar > span.lv-danger { background: #dc2626; }
 
 .rc-metrics-empty {
   font-size: 12px; color: #9ca3af;
