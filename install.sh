@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# MeshPanel 一键管理脚本(菜单式:安装/更新/卸载/状态)
+# MeshPanel 一键管理脚本(单二进制版,菜单式:安装/更新/卸载/状态)
 # 用法:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/huabanmao168/Mesh-Panel/main/install.sh)
-# 已安装后也可以本地直接跑:
-#   bash /opt/mesh-panel/install.sh
+# 已安装后输入 `mesh` 也能调出菜单。
 set -euo pipefail
 
 REPO="huabanmao168/Mesh-Panel"
 INSTALL_DIR="/opt/mesh-panel"
+BINARY_PATH="${INSTALL_DIR}/mesh-panel"
 SERVICE_NAME="meshpanel"
 DEFAULT_PORT="8000"
+ASSET_NAME="mesh-panel-linux-amd64"
 
 c_green='\033[32m'; c_red='\033[31m'; c_yellow='\033[33m'; c_blue='\033[34m'; c_cyan='\033[36m'; c_bold='\033[1m'; c_reset='\033[0m'
 log()  { echo -e "${c_blue}[*]${c_reset} $*"; }
@@ -20,22 +21,25 @@ die()  { err "$*"; exit 1; }
 
 [[ $EUID -eq 0 ]] || die "请用 root 运行 (sudo bash ...)"
 
-# ---- 检测包管理器 ----
-detect_pm() {
-  if   command -v apt-get >/dev/null; then PM=apt
-  elif command -v dnf     >/dev/null; then PM=dnf
-  elif command -v yum     >/dev/null; then PM=yum
-  else die "不支持的发行版,仅支持 Debian/Ubuntu/CentOS/RHEL/Fedora"
-  fi
+# ---- 架构检测 ----
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) ARCH="amd64" ;;
+    aarch64|arm64) die "暂未提供 arm64 二进制,请使用源码安装或开 issue 申请" ;;
+    *) die "不支持的架构: $(uname -m)" ;;
+  esac
 }
 
 install_deps() {
-  log "安装依赖 (python3 venv git curl tar)..."
-  case $PM in
-    apt) apt-get update -qq && apt-get install -y -qq python3 python3-venv python3-pip git curl tar ca-certificates ;;
-    dnf|yum) $PM install -y -q python3 python3-pip git curl tar ca-certificates ;;
-  esac
-  ok "依赖装好"
+  # 单二进制只需要 curl,基本所有系统都自带,这里兜底装一下
+  if ! command -v curl >/dev/null; then
+    log "装 curl..."
+    if   command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq curl ca-certificates
+    elif command -v dnf >/dev/null; then dnf install -y -q curl ca-certificates
+    elif command -v yum >/dev/null; then yum install -y -q curl ca-certificates
+    else die "请先手动装 curl"
+    fi
+  fi
 }
 
 get_latest_tag() {
@@ -44,8 +48,8 @@ get_latest_tag() {
 }
 
 current_version() {
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    git -C "$INSTALL_DIR" describe --tags --always 2>/dev/null || echo "unknown"
+  if [[ -x "$BINARY_PATH" ]] && [[ -f "${INSTALL_DIR}/VERSION" ]]; then
+    cat "${INSTALL_DIR}/VERSION"
   else
     echo "未安装"
   fi
@@ -62,93 +66,27 @@ service_status() {
 }
 
 panel_port_in_db() {
-  local db="$INSTALL_DIR/data/app.db"
+  local db="${INSTALL_DIR}/data/app.db"
   [[ -f "$db" ]] || { echo "$DEFAULT_PORT"; return; }
-  local venv="$INSTALL_DIR/backend/.venv/bin/python"
-  [[ -x "$venv" ]] || { echo "$DEFAULT_PORT"; return; }
-  "$venv" -c "
-import sqlite3
-c = sqlite3.connect('$db')
-r = c.execute(\"select value from settings where key='panel_port'\").fetchone()
-print(r[0] if r else '$DEFAULT_PORT')
-" 2>/dev/null || echo "$DEFAULT_PORT"
-}
-
-# ---------------- 安装 ----------------
-do_install() {
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    warn "$INSTALL_DIR 已存在,如需更新请选[2],如需重装请先选[3]卸载"
-    return
-  fi
-  detect_pm
-  install_deps
-
-  log "查询最新 release..."
-  LATEST=$(get_latest_tag)
-  [[ -n "$LATEST" ]] || die "拉不到 release tag,检查仓库是否已发版"
-  ok "最新版本: $LATEST"
-
-  log "拉取源码到 $INSTALL_DIR..."
-  git clone -q --depth 1 --branch "$LATEST" "https://github.com/${REPO}.git" "$INSTALL_DIR"
-
-  BASE_URL="https://github.com/${REPO}/releases/download/${LATEST}"
-  log "下载前端 dist..."
-  curl -fsSL -o /tmp/frontend-dist.tar.gz "${BASE_URL}/frontend-dist.tar.gz"
-  tar -xzf /tmp/frontend-dist.tar.gz -C "$INSTALL_DIR/frontend"
-  rm -f /tmp/frontend-dist.tar.gz
-
-  log "下载 agent 二进制 (amd64/arm64/armv7)..."
-  mkdir -p "$INSTALL_DIR/backend/agent_dist"
-  for arch in amd64 arm64 armv7; do
-    curl -fsSL -o "$INSTALL_DIR/backend/agent_dist/mesh-agent-${arch}" "${BASE_URL}/mesh-agent-${arch}"
-    chmod +x "$INSTALL_DIR/backend/agent_dist/mesh-agent-${arch}"
-  done
-  ok "release 产物就绪"
-
-  log "创建 Python venv 并装依赖..."
-  cd "$INSTALL_DIR/backend"
-  python3 -m venv .venv
-  .venv/bin/pip install -q --upgrade pip
-  .venv/bin/pip install -q -r requirements.txt
-  ok "Python 依赖装好"
-
-  write_systemd_unit
-  install_shortcut
-  systemctl daemon-reload
-  systemctl enable -q ${SERVICE_NAME}.service
-  systemctl restart ${SERVICE_NAME}.service
-  ok "systemd 已启用并启动"
-
-  sleep 2
-  local port; port=$(panel_port_in_db)
-  if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
-    ok "MeshPanel 健康检查通过"
+  if command -v sqlite3 >/dev/null; then
+    sqlite3 "$db" "select value from settings where key='panel_port'" 2>/dev/null || echo "$DEFAULT_PORT"
   else
-    warn "健康检查失败,看日志: journalctl -u ${SERVICE_NAME} -n 50 --no-pager"
+    echo "$DEFAULT_PORT"
   fi
-
-  local pub_ip
-  pub_ip=$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
-  echo
-  echo "==========================================="
-  ok "MeshPanel ${LATEST} 安装完成"
-  echo
-  echo "  访问面板: ${c_cyan}http://${pub_ip}:${port}${c_reset}"
-  echo "  首次访问设置管理员密码"
-  echo
-  echo "  以后调出菜单只需输入: ${c_cyan}mesh${c_reset}"
-  echo "==========================================="
 }
 
-install_shortcut() {
-  # /usr/local/bin/mesh -> /opt/mesh-panel/install.sh,让用户输入 mesh 即可打开菜单
-  local target="/usr/local/bin/mesh"
-  cat > "$target" <<EOF
-#!/usr/bin/env bash
-exec bash ${INSTALL_DIR}/install.sh "\$@"
-EOF
-  chmod +x "$target"
-  ok "已创建快捷命令: mesh"
+download_binary() {
+  local version="$1"
+  local url="https://github.com/${REPO}/releases/download/${version}/${ASSET_NAME}"
+  log "下载 ${ASSET_NAME} (${version})..."
+  mkdir -p "$INSTALL_DIR"
+  # 先下到临时文件再原子替换,避免覆盖中途崩了
+  curl -fsSL --retry 3 -o "${BINARY_PATH}.new" "$url" \
+    || die "下载失败: $url"
+  chmod +x "${BINARY_PATH}.new"
+  mv -f "${BINARY_PATH}.new" "$BINARY_PATH"
+  echo "$version" > "${INSTALL_DIR}/VERSION"
+  ok "二进制就绪: $BINARY_PATH"
 }
 
 write_systemd_unit() {
@@ -161,8 +99,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=${INSTALL_DIR}/backend
-ExecStart=${INSTALL_DIR}/backend/.venv/bin/python ${INSTALL_DIR}/backend/run_server.py
+WorkingDirectory=${INSTALL_DIR}
+Environment=MESH_PANEL_HOME=${INSTALL_DIR}
+ExecStart=${BINARY_PATH}
 Restart=on-failure
 RestartSec=3
 # 允许绑定 80/443 低端口
@@ -176,9 +115,70 @@ WantedBy=multi-user.target
 EOF
 }
 
+install_shortcut() {
+  # /usr/local/bin/mesh -> 本脚本副本,让用户输入 mesh 即可打开菜单
+  cp -f "$0" "${INSTALL_DIR}/install.sh" 2>/dev/null || \
+    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/install.sh" -o "${INSTALL_DIR}/install.sh"
+  chmod +x "${INSTALL_DIR}/install.sh"
+  cat > /usr/local/bin/mesh <<EOF
+#!/usr/bin/env bash
+exec bash ${INSTALL_DIR}/install.sh "\$@"
+EOF
+  chmod +x /usr/local/bin/mesh
+  ok "已创建快捷命令: mesh"
+}
+
+# ---------------- 安装 ----------------
+do_install() {
+  if [[ -x "$BINARY_PATH" ]]; then
+    warn "$BINARY_PATH 已存在,如需更新请选[2],如需重装请先选[3]卸载"
+    return
+  fi
+  detect_arch
+  install_deps
+
+  log "查询最新 release..."
+  LATEST=$(get_latest_tag)
+  [[ -n "$LATEST" ]] || die "拉不到 release tag,检查仓库是否已发版"
+  ok "最新版本: $LATEST"
+
+  download_binary "$LATEST"
+
+  write_systemd_unit
+  install_shortcut
+  systemctl daemon-reload
+  systemctl enable -q ${SERVICE_NAME}.service
+  systemctl restart ${SERVICE_NAME}.service
+  ok "systemd 已启用并启动"
+
+  sleep 3
+  local port; port=$(panel_port_in_db)
+  if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
+    ok "MeshPanel 健康检查通过"
+  else
+    warn "健康检查失败,看日志: journalctl -u ${SERVICE_NAME} -n 50 --no-pager"
+  fi
+
+  local pub_ip
+  pub_ip=$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
+  echo
+  echo "==========================================="
+  ok "MeshPanel ${LATEST} 安装完成"
+  echo
+  echo -e "  访问面板: ${c_cyan}http://${pub_ip}:${port}${c_reset}"
+  echo -e "  默认账号: ${c_bold}admin${c_reset} / ${c_bold}admin123456${c_reset}"
+  echo -e "  ${c_yellow}登录后请立刻改密!${c_reset}"
+  echo
+  echo -e "  以后调出菜单只需输入: ${c_cyan}mesh${c_reset}"
+  echo "==========================================="
+}
+
 # ---------------- 更新 ----------------
 do_update() {
-  [[ -d "$INSTALL_DIR/.git" ]] || { warn "$INSTALL_DIR 不是 MeshPanel 安装目录,先选[1]安装"; return; }
+  [[ -x "$BINARY_PATH" ]] || { warn "未安装,先选[1]安装"; return; }
+  detect_arch
+  install_deps
+
   LATEST=$(get_latest_tag)
   [[ -n "$LATEST" ]] || die "拉不到 release tag"
   CURRENT=$(current_version)
@@ -190,28 +190,7 @@ do_update() {
   read -p "确认更新到 $LATEST? (y/N): " ans
   [[ "$ans" =~ ^[Yy]$ ]] || { log "取消"; return; }
 
-  log "拉取新代码..."
-  cd "$INSTALL_DIR"
-  git fetch -q --tags
-  git checkout -q "$LATEST"
-
-  BASE_URL="https://github.com/${REPO}/releases/download/${LATEST}"
-  log "更新前端 dist..."
-  curl -fsSL -o /tmp/frontend-dist.tar.gz "${BASE_URL}/frontend-dist.tar.gz"
-  rm -rf frontend/dist
-  tar -xzf /tmp/frontend-dist.tar.gz -C frontend
-  rm -f /tmp/frontend-dist.tar.gz
-
-  log "更新 agent 二进制..."
-  for arch in amd64 arm64 armv7; do
-    curl -fsSL -o "backend/agent_dist/mesh-agent-${arch}" "${BASE_URL}/mesh-agent-${arch}"
-    chmod +x "backend/agent_dist/mesh-agent-${arch}"
-  done
-
-  log "升级 Python 依赖..."
-  cd backend && .venv/bin/pip install -q -r requirements.txt
-
-  # 重写 systemd unit(可能新版换了启动命令)
+  download_binary "$LATEST"
   write_systemd_unit
   install_shortcut
   systemctl daemon-reload
@@ -230,7 +209,8 @@ do_update() {
 do_uninstall() {
   warn "即将卸载 MeshPanel: 停止服务、删除 ${INSTALL_DIR}、移除 systemd unit"
   warn "节点不会自动卸载,如需清理节点请先在面板里挨个点'卸载'"
-  read -p "输入 yes 确认: " ans
+  read -p "是否同时删除数据 (data/)? 删了节点+证书+密钥全没 [y/N]: " del_data
+  read -p "输入 yes 确认卸载: " ans
   [[ "$ans" == "yes" ]] || { log "取消"; return; }
 
   log "停止并禁用服务..."
@@ -240,11 +220,17 @@ do_uninstall() {
   systemctl daemon-reload
   systemctl reset-failed 2>/dev/null || true
 
-  log "删除安装目录..."
-  rm -rf "$INSTALL_DIR"
+  rm -f "$BINARY_PATH" "${INSTALL_DIR}/VERSION" "${INSTALL_DIR}/install.sh"
+  if [[ "$del_data" =~ ^[Yy]$ ]]; then
+    log "删除数据目录..."
+    rm -rf "${INSTALL_DIR}/data"
+  else
+    warn "数据保留在 ${INSTALL_DIR}/data,下次安装会自动复用"
+  fi
+  rmdir "$INSTALL_DIR" 2>/dev/null || true
   rm -f /usr/local/bin/mesh
 
-  ok "MeshPanel 已卸载干净"
+  ok "MeshPanel 已卸载"
 }
 
 # ---------------- 启停/日志 ----------------
@@ -257,7 +243,7 @@ do_logs()     { echo "Ctrl+C 退出"; sleep 1; journalctl -u ${SERVICE_NAME} -f 
 # ---------------- 菜单 ----------------
 print_header() {
   clear
-  local ver st port pubip
+  local ver st port pubip st_color
   ver=$(current_version)
   st=$(service_status)
   port=$(panel_port_in_db)
