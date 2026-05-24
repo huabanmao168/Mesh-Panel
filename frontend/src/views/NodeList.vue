@@ -261,7 +261,7 @@
         </div>
 
         <div class="rc-metrics" v-if="metrics[row.id]">
-          <div class="rc-m"><div class="rc-m-label">CPU</div><div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(2) }}%</div></div>
+          <div class="rc-m"><div class="rc-m-label">CPU</div><div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(1) }}%</div></div>
           <div class="rc-m"><div class="rc-m-label">内存</div><div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div></div>
           <div class="rc-m" v-if="metrics[row.id].swap_total"><div class="rc-m-label">Swap</div><div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div></div>
           <div class="rc-m" v-if="metrics[row.id].disk_total"><div class="rc-m-label">存储</div><div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div></div>
@@ -614,11 +614,11 @@ async function loadMetrics() {
 function fmtBps(bps) {
   // 速率显示统一按"字节/秒"，跟累计流量单位一致：Bps = bps / 8
   const Bps = (bps || 0) / 8
-  if (Bps < 1024) return `${Bps.toFixed(Bps >= 10 ? 0 : 1)} B`
+  if (Bps < 1024) return `${Bps.toFixed(1)} B`
   const units = ['KB', 'MB', 'GB', 'TB']
   let v = Bps / 1024, i = 0
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`
+  return `${v.toFixed(1)} ${units[i]}`
 }
 function splitBps(bps) {
   const s = fmtBps(bps)
@@ -641,7 +641,7 @@ function fmtBytes(b) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let v = b, i = 0
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`
+  return `${v.toFixed(1)} ${units[i]}`
 }
 function fmtUptime(sec) {
   if (!sec) return '—'
