@@ -162,11 +162,10 @@
                 <el-button
                   size="small"
                   plain
-                  :icon="Refresh"
                   :loading="restartingId === inst.id"
                   :disabled="inst.enabled === false"
                   @click="restartOne(inst)"
-                >重启 soga</el-button>
+                >重启实例</el-button>
 
                 <!-- 路由分发 -->
                 <div class="route-source-block">
@@ -289,11 +288,11 @@ async function pushOne(inst) {
 async function restartOne(inst) {
   if (restartingId.value) return
   try {
-    await ElMessageBox.confirm(`重启 soga 实例 ${inst.folder_name}?`, '重启 soga', { type: 'warning' })
+    await ElMessageBox.confirm(`重启 soga 实例 ${inst.folder_name}?`, '重启实例', { type: 'warning' })
   } catch { return }
   restartingId.value = inst.id
   try {
-    const { data } = await http.post(`/soga/instances/${inst.id}/restart`)
+    const data = await http.post(`/soga/instances/${inst.id}/restart`)
     if (data?.ok) ElMessage.success(`已重启 ${inst.folder_name}`)
     else ElMessage.warning(data?.output || '重启返回异常')
   } catch (e) {
