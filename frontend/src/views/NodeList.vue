@@ -276,11 +276,13 @@
             <div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div>
             <div class="rc-bar"><span :class="loadLevel(swapPct(row.id))" :style="{ width: Math.min(swapPct(row.id), 100) + '%' }" /></div>
           </div>
+          <div class="rc-m rc-m-empty" v-else aria-hidden="true"></div>
           <div class="rc-m" v-if="metrics[row.id].disk_total">
             <div class="rc-m-label">存储</div>
             <div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div>
             <div class="rc-bar"><span :class="loadLevel(diskPct(row.id))" :style="{ width: Math.min(diskPct(row.id), 100) + '%' }" /></div>
           </div>
+          <div class="rc-m rc-m-empty" v-else aria-hidden="true"></div>
           <div class="rc-m">
             <div class="rc-m-label">上传</div>
             <div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div>
@@ -1150,17 +1152,17 @@ onBeforeUnmount(() => {
 }
 
 .rc-metrics {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(6, 72px);
+  gap: 0 14px;
+  align-items: start;
   min-width: 0;
 }
 .rc-metrics .rc-m {
-  min-width: 56px;
+  min-width: 0; width: 72px;
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  flex: 0 0 auto;
 }
+.rc-m-empty { visibility: hidden; }
 .rc-m-label {
   font-size: 11px; color: #9ca3af; letter-spacing: 0.02em; line-height: 1;
 }
@@ -1175,7 +1177,7 @@ onBeforeUnmount(() => {
 .rc-m-val.lv-warn   { color: #d97706; }
 .rc-m-val.lv-danger { color: #dc2626; }
 .rc-bar {
-  width: 56px; height: 3px;
+  width: 64px; height: 3px;
   background: #e5e7eb;
   border-radius: 2px;
   overflow: hidden;
