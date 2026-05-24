@@ -131,6 +131,13 @@ if __name__ == "__main__":
     import os
     import sys
     from pathlib import Path
+
+    # --version / -v: 不启服务,只打印版本号(install.sh 检测当前版本用)
+    if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-v"):
+        from version import __version__
+        print(__version__)
+        sys.exit(0)
+
     import uvicorn
     from sqlmodel import Session
     from database import engine

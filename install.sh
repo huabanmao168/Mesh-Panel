@@ -58,8 +58,20 @@ get_latest_tag() {
 }
 
 current_version() {
-  if [[ -x "$BINARY_PATH" ]] && [[ -f "${INSTALL_DIR}/VERSION" ]]; then
-    cat "${INSTALL_DIR}/VERSION"
+  if [[ -x "$BINARY_PATH" ]]; then
+    # 优先问二进制自己 (v2.0.2+ 支持 --version)
+    local v
+    v=$("$BINARY_PATH" --version 2>/dev/null | head -1)
+    if [[ -n "$v" && "$v" != "dev" ]]; then
+      echo "v${v#v}"
+      return
+    fi
+    # 兜底:老版本(<=v2.0.1)没有 --version,读残留的 VERSION 文件
+    if [[ -f "${INSTALL_DIR}/VERSION" ]]; then
+      cat "${INSTALL_DIR}/VERSION"
+      return
+    fi
+    echo "unknown"
   else
     echo "未安装"
   fi
@@ -95,7 +107,6 @@ download_binary() {
     || die "下载失败: $url"
   chmod +x "${BINARY_PATH}.new"
   mv -f "${BINARY_PATH}.new" "$BINARY_PATH"
-  echo "$version" > "${INSTALL_DIR}/VERSION"
   ok "二进制就绪: $BINARY_PATH"
 }
 

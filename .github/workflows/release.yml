@@ -52,11 +52,19 @@ jobs:
           pip install pyinstaller==6.20.0
 
       # --- PyInstaller: single binary ---
+      - name: Inject version
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          echo "__version__ = \"${VER}\"" > backend/version.py
+          cat backend/version.py
+
       - name: Build single binary
         run: |
           pyinstaller --clean --noconfirm mesh-panel.spec
           ls -lh dist/
           file dist/mesh-panel
+          # 验证 --version 能跑
+          ./dist/mesh-panel --version
 
       - name: Smoke test binary
         run: |
