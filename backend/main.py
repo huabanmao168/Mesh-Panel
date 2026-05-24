@@ -125,9 +125,54 @@ if FRONTEND_DIST.is_dir():
 
 # --- PyInstaller 入口:打包后 sys.frozen=True,直接起 uvicorn -----
 # 源码模式不会进这里(用 `uvicorn main:app` 起)。
+# 端口优先级: 环境变量 MESH_PANEL_PORT > DB settings.panel_port > 默认 8000
+# host/tls 同理读 DB,跟 run_server.py 保持一致(DB 是 source of truth)。
 if __name__ == "__main__":
     import os
+    import sys
+    from pathlib import Path
     import uvicorn
-    host = os.environ.get("MESH_PANEL_HOST", "0.0.0.0")
-    port = int(os.environ.get("MESH_PANEL_PORT", "8000"))
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    from sqlmodel import Session
+    from database import engine
+    from api.settings import get_setting
+
+    # uvicorn.run 之前要先把表建好,否则 get_setting 查空表会 OperationalError
+    init_db()
+
+    with Session(engine) as s:
+        db_host = get_setting(s, "panel_host", "0.0.0.0") or "0.0.0.0"
+        db_port_s = get_setting(s, "panel_port", "8000") or "8000"
+        tls_enabled = get_setting(s, "tls_enabled", "0") == "1"
+        cert_path = get_setting(s, "tls_cert_path", "")
+        key_path = get_setting(s, "tls_key_path", "")
+
+    host = os.environ.get("MESH_PANEL_HOST", db_host)
+    port_s = os.environ.get("MESH_PANEL_PORT", db_port_s)
+    try:
+        port = int(port_s)
+        if not (1 <= port <= 65535):
+            raise ValueError
+    except ValueError:
+        print(f"[main] invalid panel_port={port_s!r}, fallback to 8000", file=sys.stderr)
+        port = 8000
+
+    uvicorn_kwargs = {"app": app, "host": host, "port": port, "log_level": "info"}
+
+    if tls_enabled:
+        if cert_path and key_path and Path(cert_path).is_file() and Path(key_path).is_file():
+            uvicorn_kwargs["ssl_certfile"] = cert_path
+            uvicorn_kwargs["ssl_keyfile"] = key_path
+            print(f"[main] TLS enabled: cert={cert_path}", file=sys.stderr)
+        else:
+            print(
+                f"[main] TLS enabled but cert/key missing (cert={cert_path!r} "
+                f"key={key_path!r}), serving plain HTTP",
+                file=sys.stderr,
+            )
+
+    print(
+        f"[main] starting uvicorn on {host}:{port} "
+        f"({'HTTPS' if 'ssl_certfile' in uvicorn_kwargs else 'HTTP'})",
+        file=sys.stderr,
+    )
+    uvicorn.run(**uvicorn_kwargs)
