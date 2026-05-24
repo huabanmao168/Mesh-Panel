@@ -24,7 +24,19 @@ def _user_home() -> Path:
     env = os.environ.get("MESH_PANEL_HOME", "").strip()
     if env:
         return Path(env).expanduser().resolve()
-    return Path("/opt/mesh-panel")
+    # 默认 /opt/mesh-panel,非 root 写不了 → 降级到 ~/.mesh-panel
+    default = Path("/opt/mesh-panel")
+    if os.geteuid() == 0:
+        return default
+    try:
+        default.mkdir(parents=True, exist_ok=True)
+        # 试探可写
+        probe = default / ".write_probe"
+        probe.touch()
+        probe.unlink()
+        return default
+    except (PermissionError, OSError):
+        return Path.home() / ".mesh-panel"
 
 
 RESOURCE_ROOT = _resource_root()
@@ -34,14 +46,20 @@ USER_HOME = _user_home()
 DATA_DIR = USER_HOME / "data"
 
 # --- 老数据迁移:首次启动若新目录无 data 但 /root/mesh-panel/data 有 → 整体 cp 过来
+# 这是给开发机/老用户原地升级的兜底,非 root 用户访问 /root/ 会 PermissionError,
+# 必须 try 住,失败时降级到空目录(全新部署正常流程)。
 _LEGACY_DATA = Path("/root/mesh-panel/data")
-if not DATA_DIR.exists() and _LEGACY_DATA.is_dir():
-    USER_HOME.mkdir(parents=True, exist_ok=True)
+if not DATA_DIR.exists():
     try:
-        shutil.copytree(_LEGACY_DATA, DATA_DIR)
-    except Exception:
-        # 迁移失败不致命,降级到空目录
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        legacy_exists = _LEGACY_DATA.is_dir()
+    except (PermissionError, OSError):
+        legacy_exists = False
+    if legacy_exists:
+        USER_HOME.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copytree(_LEGACY_DATA, DATA_DIR)
+        except Exception:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
