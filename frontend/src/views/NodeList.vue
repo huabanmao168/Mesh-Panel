@@ -273,20 +273,36 @@
         </div>
         <div v-else class="rc-metrics-empty muted">无数据</div>
 
-        <div class="rc-track-wrap" v-if="metrics[row.id]">
-          <div class="rc-track"><div class="rc-fill" :class="loadLevel(maxLoad(row.id))" :style="{ width: Math.max(2, maxLoad(row.id)) + '%' }" /></div>
-        </div>
-
         <el-dropdown trigger="click" @command="(c) => onCardCmd(c, row)">
           <el-button text :icon="MoreFilled" class="rc-more" />
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="edit"><el-icon><Edit /></el-icon> 编辑</el-dropdown-item>
-              <el-dropdown-item command="test"><el-icon><Refresh /></el-icon> 测连接</el-dropdown-item>
-              <el-dropdown-item v-if="row.deploy_status !== 'deployed'" command="deploy"><el-icon><Upload /></el-icon> 部署</el-dropdown-item>
-              <el-dropdown-item v-if="row.deploy_status === 'deployed'" command="upgrade"><el-icon><Upload /></el-icon> 升级 agent</el-dropdown-item>
-              <el-dropdown-item v-if="row.deploy_status === 'deployed'" command="uninstall" divided><el-icon><RemoveFilled /></el-icon> 卸载</el-dropdown-item>
-              <el-dropdown-item command="del" divided><el-icon><Delete /></el-icon> 删除</el-dropdown-item>
+              <el-dropdown-item
+                command="deploy"
+                :icon="Upload"
+                :disabled="row.deploy_status === 'deploying'"
+              >
+                {{ row.deploy_status === 'deployed' ? '重新部署' : (row.deploy_status === 'failed' ? '重试部署' : '部署') }}
+              </el-dropdown-item>
+              <el-dropdown-item
+                v-if="(row.kind || 'landing') !== 'other'"
+                command="ss"
+                :icon="Setting"
+                :disabled="row.deploy_status !== 'deployed'"
+              >节点配置</el-dropdown-item>
+              <el-dropdown-item command="detail" :icon="Document">详情</el-dropdown-item>
+              <el-dropdown-item command="edit" :icon="Edit">编辑</el-dropdown-item>
+              <el-dropdown-item
+                v-if="row.deploy_status === 'deployed'"
+                command="uninstall"
+                :icon="RemoveFilled"
+                divided
+              >
+                <span class="danger-item">卸载</span>
+              </el-dropdown-item>
+              <el-dropdown-item v-else command="remove" :icon="Delete" divided>
+                <span class="danger-item">删除</span>
+              </el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -404,9 +420,10 @@
             <el-tag :type="deployType(detailNode.deploy_status)" size="small">{{ deployLabel(detailNode.deploy_status) }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item v-if="detailNode.kind === 'soga'" label="Soga">{{ detailNode.soga_version ? `v${detailNode.soga_version}` : '—' }}</el-descriptions-item>
-          <el-descriptions-item v-else label="sing-box">{{ detailNode.singbox_version ? `v${detailNode.singbox_version}` : '—' }}</el-descriptions-item>
+          <el-descriptions-item v-else-if="detailNode.kind === 'landing'" label="sing-box">{{ detailNode.singbox_version ? `v${detailNode.singbox_version}` : '—' }}</el-descriptions-item>
+          <el-descriptions-item label="系统">{{ detailNode.os_pretty || metrics[detailNode.id]?.os_pretty || '—' }}</el-descriptions-item>
           <el-descriptions-item label="架构">{{ detailNode.arch || '—' }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailNode.kind !== 'soga'" label="config schema">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailNode.kind === 'landing'" label="config schema">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
           <el-descriptions-item label="部署时间">{{ fmtTime(detailNode.deployed_at) }}</el-descriptions-item>
         </el-descriptions>
 
@@ -660,14 +677,6 @@ function loadLevel(pct) {
   if (v >= 85) return 'lv-danger'
   if (v >= 70) return 'lv-warn'
   return 'lv-ok'
-}
-
-// 紧凑视图底部进度条:取 CPU/内存/Swap/存储 最大值,反映整机最紧资源
-function maxLoad(id) {
-  const m = metrics.value[id]
-  if (!m) return 0
-  const arr = [Number(m.cpu_pct) || 0, memPct(id), swapPct(id), diskPct(id)]
-  return Math.min(100, Math.round(Math.max(...arr)))
 }
 
 function resetForm() {
@@ -1070,7 +1079,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 10px 12px;
   display: grid;
-  grid-template-columns: auto auto auto minmax(140px, 1.2fr) minmax(0, 2.4fr) auto auto;
+  grid-template-columns: auto auto auto minmax(140px, 1.2fr) minmax(0, 2.6fr) auto;
   align-items: center;
   gap: 10px;
   transition: all 0.15s;
@@ -1145,19 +1154,6 @@ onBeforeUnmount(() => {
 }
 .rc-metrics-empty.muted { opacity: 0.6; }
 
-.rc-track-wrap { width: 80px; flex: 0 0 auto; }
-.rc-track {
-  height: 4px; background: #f1f3f5;
-  border-radius: 999px; overflow: hidden;
-}
-.rc-fill {
-  height: 100%; border-radius: 999px;
-  transition: width 0.4s ease, background 0.3s ease;
-}
-.rc-fill.lv-ok     { background: #22c55e; }
-.rc-fill.lv-warn   { background: #f59e0b; }
-.rc-fill.lv-danger { background: #ef4444; }
-
 .rc-more { padding: 4px 6px; }
 
 /* 窄屏自适应:小于 1100px,堆叠成两行 */
@@ -1166,8 +1162,7 @@ onBeforeUnmount(() => {
     grid-template-columns: auto auto auto 1fr auto;
     grid-template-areas:
       "drag dot flag name more"
-      "metrics metrics metrics metrics metrics"
-      "track track track track track";
+      "metrics metrics metrics metrics metrics";
     row-gap: 8px;
   }
   .rc-drag { grid-area: drag; }
@@ -1175,7 +1170,6 @@ onBeforeUnmount(() => {
   .rc-flag { grid-area: flag; }
   .rc-name-wrap { grid-area: name; }
   .rc-metrics, .rc-metrics-empty { grid-area: metrics; }
-  .rc-track-wrap { grid-area: track; width: 100%; }
   .rc-more { grid-area: more; }
 }
 
