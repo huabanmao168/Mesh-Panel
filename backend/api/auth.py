@@ -208,6 +208,9 @@ AUTH_WHITELIST_PREFIXES = (
 
 
 def is_whitelisted(path: str) -> bool:
+    # /api/soga/instances/<id>/routes.toml 是 soga 端拉路由的公开端点,自带 token 鉴权,豁免 cookie
+    if path.startswith("/api/soga/instances/") and path.endswith("/routes.toml"):
+        return True
     return any(path.startswith(p) for p in AUTH_WHITELIST_PREFIXES)
 
 

@@ -60,7 +60,7 @@
         <span class="spacer" />
         <el-button @click="visible = false">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">
-          保存并推送
+          {{ isHttpMode ? '保存' : '保存并推送' }}
         </el-button>
       </div>
     </div>
@@ -96,6 +96,8 @@ const instTitle = computed(() => {
   if (!instance.value) return ''
   return instance.value.display_name || instance.value.folder_name
 })
+
+const isHttpMode = computed(() => (instance.value?.route_source || 'file') === 'http')
 
 const dirty = computed(() => JSON.stringify(routes.value) !== original.value)
 
@@ -196,7 +198,11 @@ async function save() {
       })),
     }
     const r = await http.put(`/soga/instances/${instance.value.id}/routes`, payload)
-    ElMessage.success(`已推送 (${r.bytes} 字节)`)
+    if (r.mode === 'http') {
+      ElMessage.success(`已保存 · soga 将在 1 分钟内自动拉取`)
+    } else {
+      ElMessage.success(`已推送 (${r.bytes} 字节)`)
+    }
     original.value = JSON.stringify(routes.value)
     visible.value = false
   } catch (e) {

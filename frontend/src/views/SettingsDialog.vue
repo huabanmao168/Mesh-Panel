@@ -79,6 +79,21 @@
         </el-input>
         <div class="hint" v-if="derivedEndpoint">推荐:<code>{{ derivedEndpoint }}</code></div>
       </el-form-item>
+
+      <!-- ===== 分区:SoGa 路由分发 ===== -->
+      <div class="section-title">SoGa 路由分发</div>
+
+      <el-form-item label="面板公网地址">
+        <el-input
+          v-model="form.panel_public_url"
+          :placeholder="derivedPublicUrl || 'https://panel.example.com'"
+        >
+          <template #append>
+            <el-button @click="usePublicUrlDerived" :disabled="!derivedPublicUrl">用推荐值</el-button>
+          </template>
+        </el-input>
+        <div class="hint">入口机 soga 用此地址拉 routes.toml。留空 = 禁用 HTTP 分发</div>
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -112,6 +127,7 @@ const form = reactive({
   tls_enabled_bool: false,
   tls_cert_path: '',
   tls_key_path: '',
+  panel_public_url: '',
 })
 
 const emit = defineEmits(['saved'])
@@ -137,6 +153,21 @@ function useDerived() {
   if (derivedEndpoint.value) form.agent_endpoint = derivedEndpoint.value
 }
 
+// 推荐的面板公网地址 (HTTP/HTTPS,跟 derivedEndpoint 同源不同 scheme)
+const derivedPublicUrl = computed(() => {
+  const scheme = form.tls_enabled_bool ? 'https' : 'http'
+  const host = form.panel_domain.trim() || window.location.hostname || ''
+  if (!host) return ''
+  const port = form.panel_port
+  const isStdPort =
+    (form.tls_enabled_bool && port === 443) || (!form.tls_enabled_bool && port === 80)
+  return isStdPort ? `${scheme}://${host}` : `${scheme}://${host}:${port}`
+})
+
+function usePublicUrlDerived() {
+  if (derivedPublicUrl.value) form.panel_public_url = derivedPublicUrl.value
+}
+
 async function load() {
   loading.value = true
   certFile.value = null
@@ -151,6 +182,7 @@ async function load() {
     form.tls_enabled_bool = d.tls_enabled === '1'
     form.tls_cert_path = d.tls_cert_path || ''
     form.tls_key_path = d.tls_key_path || ''
+    form.panel_public_url = d.panel_public_url || ''
   } finally {
     loading.value = false
   }
@@ -185,6 +217,7 @@ async function save(thenPush) {
       panel_port: String(form.panel_port),
       panel_domain: form.panel_domain.trim(),
       tls_enabled: form.tls_enabled_bool ? '1' : '0',
+      panel_public_url: form.panel_public_url.trim().replace(/\/+$/, ''),
     }
     await settingsApi.update(payload)
     ElMessage.success('已保存')

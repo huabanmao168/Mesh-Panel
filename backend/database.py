@@ -36,6 +36,8 @@ def init_db() -> None:
         _ensure_column(conn, "nodes", "soga_version", "soga_version TEXT")
         _ensure_column(conn, "nodes", "os_pretty", "os_pretty TEXT")
         _ensure_column(conn, "soga_instances", "sort_order", "sort_order INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "soga_instances", "route_source", "route_source TEXT NOT NULL DEFAULT 'file'")
+        _ensure_column(conn, "soga_instances", "routes_token", "routes_token TEXT")
     # 填充默认设置项
     with Session(engine) as s:
         for k, v in DEFAULTS.items():

@@ -148,8 +148,9 @@
                   plain
                   :icon="Promotion"
                   :loading="pushingId === inst.id"
-                  :disabled="inst.enabled === false"
+                  :disabled="inst.enabled === false || pendingSourceChanged(inst)"
                   @click="pushOne(inst)"
+                  v-if="(inst.route_source || 'file') === 'file'"
                 >重新推送</el-button>
                 <el-button
                   size="small"
@@ -158,6 +159,39 @@
                   :disabled="inst.enabled === false"
                   @click="openRouteEditor(inst.id)"
                 >配置路由</el-button>
+
+                <!-- 路由分发 -->
+                <div class="route-source-block">
+                  <el-radio-group
+                    v-model="sourceDraft[inst.id]"
+                    size="small"
+                    :disabled="inst.enabled === false || sourceBusy === inst.id"
+                  >
+                    <el-radio value="http">HTTP 拉取</el-radio>
+                    <el-radio value="file">本地文件</el-radio>
+                  </el-radio-group>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="sourceBusy === inst.id"
+                    :disabled="!canApplySource(inst)"
+                    :title="applyDisabledHint(inst)"
+                    @click="applySource(inst)"
+                  >应用</el-button>
+
+                  <div class="route-source-detail" v-if="(sourceDraft[inst.id] || inst.route_source || 'file') === 'http'">
+                    <div class="url-row" v-if="inst.routes_token && panelPublicUrl">
+                      <code class="url">{{ buildUrl(inst) }}</code>
+                      <el-button size="small" text @click="copyUrl(inst)">复制</el-button>
+                    </div>
+                    <div class="url-row muted" v-else-if="!panelPublicUrl">
+                      请先在系统设置填写「面板公网地址」
+                    </div>
+                    <div class="url-row muted" v-else>
+                      点「应用」生成拉取地址
+                    </div>
+                  </div>
+                </div>
               </div>
               </template>
             </draggable>
@@ -177,6 +211,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Promotion, Edit } from '@element-plus/icons-vue'
 import http from '../api.js'
+import { settingsApi } from '../api.js'
 import draggable from 'vuedraggable'
 import SogaRouteEditor from './SogaRouteEditor.vue'
 import SogaConfEditor from './SogaConfEditor.vue'
@@ -246,6 +281,67 @@ async function pushOne(inst) {
     ElMessage.error(e?.response?.data?.detail || '推送失败')
   } finally {
     pushingId.value = null
+  }
+}
+
+// ─── 路由分发模式 ───────────────────────────────────────────────────────
+const panelPublicUrl = ref('')        // 系统设置里的面板公网地址
+const sourceDraft = ref({})           // {instId: 'file'|'http'} 用户选中但未应用
+const sourceBusy = ref(null)          // 正在切换的 instId
+
+function pendingSourceChanged(inst) {
+  const cur = inst.route_source || 'file'
+  const draft = sourceDraft.value[inst.id] || cur
+  return draft !== cur
+}
+function canApplySource(inst) {
+  if (inst.enabled === false) return false
+  if (sourceBusy.value) return false
+  const cur = inst.route_source || 'file'
+  const draft = sourceDraft.value[inst.id] || cur
+  if (draft === cur) return false
+  if (draft === 'http' && !panelPublicUrl.value) return false
+  return true
+}
+function applyDisabledHint(inst) {
+  const cur = inst.route_source || 'file'
+  const draft = sourceDraft.value[inst.id] || cur
+  if (draft === cur) return '未改变,无需应用'
+  if (draft === 'http' && !panelPublicUrl.value) return '请先在系统设置填写面板公网地址'
+  return ''
+}
+function buildUrl(inst) {
+  if (!panelPublicUrl.value || !inst.routes_token) return ''
+  return `${panelPublicUrl.value}/api/soga/instances/${inst.id}/routes.toml?token=${inst.routes_token}`
+}
+async function copyUrl(inst) {
+  const u = buildUrl(inst)
+  if (!u) return
+  try {
+    await navigator.clipboard.writeText(u)
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败,请手工选中')
+  }
+}
+async function applySource(inst) {
+  const draft = sourceDraft.value[inst.id]
+  if (!draft) return
+  sourceBusy.value = inst.id
+  try {
+    const r = await http.post(`/soga/instances/${inst.id}/route-source`, { mode: draft })
+    inst.route_source = r.route_source
+    inst.routes_token = r.routes_token
+    sourceDraft.value[inst.id] = r.route_source
+    if (r.restarted) {
+      ElMessage.success(`已切换到「${draft === 'http' ? 'HTTP 拉取' : '本地文件'}」并重启 soga`)
+    } else {
+      ElMessage.warning(`已切换但重启失败: ${r.restart_output || '未知错误'}`)
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '切换失败')
+  } finally {
+    sourceBusy.value = null
   }
 }
 
@@ -331,12 +427,28 @@ async function open(nodeId) {
   try {
     const r = await http.get(`/soga/${nodeId}/instances`)
     instances.value = r.instances || []
+    syncSourceDraft()
     applyProbeFromResp(r)
   } catch {
     // 没扫过 → 空
   } finally {
     loadingNode.value = false
   }
+  // 拉系统设置里的 panel_public_url(每次打开都拉一次,免得用户改了不刷新)
+  try {
+    const s = await settingsApi.get()
+    panelPublicUrl.value = (s.data?.panel_public_url || '').replace(/\/+$/, '')
+  } catch {
+    panelPublicUrl.value = ''
+  }
+}
+
+function syncSourceDraft() {
+  const d = {}
+  for (const inst of instances.value) {
+    d[inst.id] = inst.route_source || 'file'
+  }
+  sourceDraft.value = d
 }
 
 function applyProbeFromResp(r) {
@@ -355,6 +467,7 @@ async function scan() {
     const sr = await http.post(`/soga/${node.value.id}/scan`)
     const r = await http.get(`/soga/${node.value.id}/instances`)
     instances.value = r.instances || []
+    syncSourceDraft()
     applyProbeFromResp(r)
     if (sr?.last_scanned_at) {
       lastScannedAt.value = new Date(sr.last_scanned_at.endsWith('Z') ? sr.last_scanned_at : sr.last_scanned_at + 'Z').getTime()
@@ -627,6 +740,7 @@ defineExpose({ open })
 }
 .inst-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -638,6 +752,53 @@ defineExpose({ open })
 }
 .inst-card:hover { border-color: #c7d2fe; }
 .inst-card.disabled { opacity: 0.5; }
+
+.route-source-block {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 0 2px;
+  margin-top: 4px;
+  border-top: 1px dashed #eef0f3;
+}
+.route-source-block :deep(.el-radio) { margin-right: 8px; }
+.route-source-block :deep(.el-radio__label) {
+  font-size: 12.5px;
+  color: #4b5563;
+  font-weight: 500;
+}
+.route-source-detail {
+  flex-basis: 100%;
+  padding-top: 2px;
+}
+.url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #eef0f3;
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+.url-row .url {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #1f2937;
+  word-break: break-all;
+  background: transparent;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+.url-row.muted {
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  color: #9ca3af;
+  font-size: 12px;
+}
 .inst-main {
   display: flex;
   flex-direction: column;

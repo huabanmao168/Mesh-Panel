@@ -25,5 +25,9 @@ DEFAULTS: dict[str, str] = {
     # TLS（启用后 panel 由 uvicorn 直接 serve HTTPS）
     "tls_enabled": "0",               # "1" 启用
     "tls_cert_path": "",              # 证书 fullchain 文件绝对路径
-    "tls_key_path": "",               # 私钥文件绝对路径
+    "tls_key_path": "",              # 私钥文件绝对路径
+
+    # 面板对外公网地址(给 soga -routes_url 拼链接用)。空 = 未配置,UI 提示先填
+    # 例: https://panel.example.com 或 http://1.2.3.4:8000 (末尾不带 /)
+    "panel_public_url": "",
 }

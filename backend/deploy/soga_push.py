@@ -179,6 +179,33 @@ def write_conf(node, folder_name: str, text: str) -> None:
         raise SogaPushError(f"写 soga.conf 失败: {e}") from e
 
 
+def _strip_routes_url(text: str) -> str:
+    """从 conf 文本里剥掉所有 routes_url= 行(含前后空行整行)。"""
+    lines = text.splitlines()
+    keep = [ln for ln in lines if not ln.lstrip().lower().startswith("routes_url=")]
+    # 末尾保留单个换行
+    return "\n".join(keep).rstrip("\n") + "\n"
+
+
+def set_routes_url(node, folder_name: str, url: str | None) -> None:
+    """切换 soga.conf 的 routes_url 行。
+
+    url=None: 移除该行(切回 file 模式);
+    url=str:  移除旧的并追加新行到文件末尾。
+    幂等。写完不重启,调用方自己决定重启时机。
+    """
+    _require_online(node)
+    conf = read_conf(node, folder_name)
+    stripped = _strip_routes_url(conf)
+    if url:
+        new_text = stripped + f"routes_url={url}\n"
+    else:
+        new_text = stripped
+    if new_text == conf:
+        return
+    write_conf(node, folder_name, new_text)
+
+
 def restart_soga(node, folder_name: str) -> str:
     """跑 `soga restart <folder>`,返回输出。失败抛 SogaPushError。"""
     _require_online(node)

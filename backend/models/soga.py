@@ -23,6 +23,10 @@ class SogaInstance(SQLModel, table=True):
     display_name: Optional[str] = Field(default=None, description="可选别名")
     enabled: bool = Field(default=True)
     sort_order: int = Field(default=0, index=True, description="拖拽排序权重,小的在前,同值按 id 升序")
+    # 路由分发模式: "file"=soga 直接 watch 本地 routes.toml; "http"=soga -routes_url 拉面板
+    route_source: str = Field(default="file", description="file | http")
+    # HTTP 模式下用于鉴权的 32 字节 hex token, 永久不变(泄漏后手工改库)
+    routes_token: Optional[str] = Field(default=None, description="HTTP 拉取 routes.toml 的 token")
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 

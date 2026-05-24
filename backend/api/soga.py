@@ -215,6 +215,8 @@ def list_instances(node_id: int, session: Session = Depends(get_session)):
             "enabled": inst.enabled,
             "sort_order": inst.sort_order,
             "route_count": cnt,
+            "route_source": inst.route_source or "file",
+            "routes_token": inst.routes_token,
             "updated_at": inst.updated_at.isoformat() if inst.updated_at else None,
         })
     return {
@@ -504,6 +506,7 @@ def get_instance_routes(instance_id: int, session: Session = Depends(get_session
             "id": inst.id,
             "folder_name": inst.folder_name,
             "display_name": inst.display_name,
+            "route_source": inst.route_source or "file",
         },
         "routes": data,
     }
@@ -610,6 +613,16 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
     except Exception as e:
         raise HTTPException(500, f"渲染异常: {type(e).__name__}: {e}")
 
+    # HTTP 模式: 只写 DB,soga 自己 1 分钟轮询拉新 toml
+    if (inst.route_source or "file") == "http":
+        return {
+            "ok": True,
+            "pushed": False,
+            "mode": "http",
+            "bytes": len(toml_text.encode("utf-8")),
+        }
+
+    # file 模式: SSH 推 routes.toml
     try:
         push_routes(node, inst.folder_name, toml_text)
     except SogaPushError as e:
@@ -617,4 +630,123 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
     except Exception as e:
         raise HTTPException(502, f"SSH 异常: {type(e).__name__}: {e}")
 
-    return {"ok": True, "pushed": True, "bytes": len(toml_text.encode("utf-8"))}
+    return {"ok": True, "pushed": True, "mode": "file", "bytes": len(toml_text.encode("utf-8"))}
+
+
+# ─── 路由分发模式切换 ────────────────────────────────────────────────────────
+
+def _gen_routes_token() -> str:
+    import secrets
+    return secrets.token_hex(32)
+
+
+def _panel_public_url(session: Session) -> str:
+    from api.settings import get_setting as _gs
+    return (_gs(session, "panel_public_url", "") or "").rstrip("/")
+
+
+def _build_routes_url(public_url: str, instance_id: int, token: str) -> str:
+    return f"{public_url}/api/soga/instances/{instance_id}/routes.toml?token={token}"
+
+
+@router.post("/instances/{instance_id}/route-source")
+def set_route_source(instance_id: int, payload: dict, session: Session = Depends(get_session)):
+    """切换路由分发模式 (显式动作:写 conf + 重启 soga + 写 DB)。
+
+    payload: {"mode": "file" | "http"}
+    """
+    from deploy.soga_push import set_routes_url, restart_soga, SogaPushError
+
+    mode = (payload or {}).get("mode")
+    if mode not in ("file", "http"):
+        raise HTTPException(400, "mode 必须是 file 或 http")
+
+    inst = session.get(SogaInstance, instance_id)
+    if not inst:
+        raise HTTPException(404, "实例不存在")
+    if not inst.enabled:
+        raise HTTPException(400, "实例已消失,无法切换")
+    node = session.get(Node, inst.node_id)
+    if not node:
+        raise HTTPException(404, "节点不存在")
+
+    if mode == "http":
+        public_url = _panel_public_url(session)
+        if not public_url:
+            raise HTTPException(400, "请先在系统设置填写面板公网地址(panel_public_url)")
+        if not inst.routes_token:
+            inst.routes_token = _gen_routes_token()
+        url = _build_routes_url(public_url, inst.id, inst.routes_token)
+        try:
+            set_routes_url(node, inst.folder_name, url)
+        except SogaPushError as e:
+            raise HTTPException(502, f"写 soga.conf 失败: {e}")
+    else:
+        try:
+            set_routes_url(node, inst.folder_name, None)
+        except SogaPushError as e:
+            raise HTTPException(502, f"写 soga.conf 失败: {e}")
+
+    inst.route_source = mode
+    inst.updated_at = _now()
+    session.add(inst)
+    session.commit()
+
+    # 重启让 soga 重读 conf
+    restart_ok = True
+    restart_msg = ""
+    try:
+        restart_msg = restart_soga(node, inst.folder_name)
+    except SogaPushError as e:
+        restart_ok = False
+        restart_msg = str(e)
+    except Exception as e:  # noqa: BLE001
+        restart_ok = False
+        restart_msg = f"{type(e).__name__}: {e}"
+
+    return {
+        "ok": True,
+        "route_source": inst.route_source,
+        "routes_token": inst.routes_token,
+        "restarted": restart_ok,
+        "restart_output": restart_msg,
+    }
+
+
+# ─── 公开端点: soga 拉 routes.toml ───────────────────────────────────────────
+
+@router.get("/instances/{instance_id}/routes.toml")
+def serve_routes_toml(instance_id: int, token: str = "", session: Session = Depends(get_session)):
+    """soga -routes_url 拉这里。token 错或缺失返 444 空 body 不泄漏存在性。"""
+    from fastapi.responses import Response, PlainTextResponse
+    from deploy.soga_push import render_routes_toml
+
+    if not token:
+        return Response(status_code=444)
+    inst = session.get(SogaInstance, instance_id)
+    if not inst or not inst.routes_token or not _consteq(token, inst.routes_token):
+        return Response(status_code=444)
+    if (inst.route_source or "file") != "http":
+        # 不在 http 模式下拒绝服务,避免 soga 在切回 file 后还能拉到
+        return Response(status_code=444)
+    node = session.get(Node, inst.node_id)
+    if not node:
+        return Response(status_code=444)
+
+    enable_probe = bool(getattr(node, "soga_system_probe", True))
+    probe_rules = _node_probe_rules(node)
+    routes_data, landings_map = _load_instance_routes_for_push(session, inst.id)
+    try:
+        toml_text = render_routes_toml(
+            routes_data, landings_map,
+            enable_system_probe=enable_probe,
+            system_probe_rules=probe_rules,
+        )
+    except Exception:
+        return Response(status_code=444)
+    return PlainTextResponse(toml_text, media_type="application/toml")
+
+
+def _consteq(a: str, b: str) -> bool:
+    import hmac
+    return hmac.compare_digest(a, b)
