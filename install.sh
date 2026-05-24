@@ -42,6 +42,16 @@ install_deps() {
   fi
 }
 
+ensure_sqlite3() {
+  command -v sqlite3 >/dev/null && return 0
+  log "装 sqlite3..."
+  if   command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq sqlite3
+  elif command -v dnf >/dev/null; then dnf install -y -q sqlite
+  elif command -v yum >/dev/null; then yum install -y -q sqlite
+  else die "请先手动装 sqlite3"
+  fi
+}
+
 get_latest_tag() {
   curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
     | grep -oP '"tag_name":\s*"\K[^"]+' || true
@@ -233,6 +243,49 @@ do_uninstall() {
   ok "MeshPanel 已卸载"
 }
 
+# ---------------- 改端口 ----------------
+do_change_port() {
+  [[ -x "$BINARY_PATH" ]] || { warn "未安装,先选[1]安装"; return; }
+  local db="${INSTALL_DIR}/data/app.db"
+  [[ -f "$db" ]] || die "数据库不存在: $db"
+  ensure_sqlite3
+
+  local cur new
+  cur=$(panel_port_in_db)
+  echo -e "当前面板端口: ${c_bold}${cur}${c_reset}"
+  read -p "输入新端口 (1-65535,回车取消): " new
+  [[ -z "$new" ]] && { log "取消"; return; }
+  [[ "$new" =~ ^[0-9]+$ ]] || die "端口必须是数字"
+  (( new >= 1 && new <= 65535 )) || die "端口范围 1-65535"
+  [[ "$new" == "$cur" ]] && { warn "端口未变"; return; }
+
+  # 检查端口占用 (排除自己)
+  if command -v ss >/dev/null && ss -tnlp 2>/dev/null | awk '{print $4}' | grep -qE ":${new}$"; then
+    # 看是不是 meshpanel 自己占的(改端口前它还在跑旧端口,所以新端口被占就是别人占的)
+    warn "端口 ${new} 已被其它进程占用:"
+    ss -tnlp 2>/dev/null | grep -E ":${new}\b" || true
+    read -p "仍要使用? (y/N): " ans
+    [[ "$ans" =~ ^[Yy]$ ]] || { log "取消"; return; }
+  fi
+
+  log "写入数据库..."
+  sqlite3 "$db" "INSERT INTO settings(key,value) VALUES('panel_port','${new}') \
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;" \
+    || die "sqlite3 写入失败"
+
+  log "重启服务..."
+  systemctl restart ${SERVICE_NAME}.service
+  sleep 2
+  if curl -fsS "http://127.0.0.1:${new}/api/health" >/dev/null 2>&1; then
+    ok "端口已改为 ${new},健康检查通过"
+    local pubip; pubip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [[ -n "$pubip" ]] && echo -e "  访问: ${c_cyan}http://${pubip}:${new}${c_reset}"
+  else
+    err "新端口健康检查失败,看 journalctl -u ${SERVICE_NAME} -n 30 --no-pager"
+    warn "如需回滚: mesh port ${cur}"
+  fi
+}
+
 # ---------------- 启停/日志 ----------------
 do_restart()  { systemctl restart ${SERVICE_NAME}.service && ok "已重启"; }
 do_stop()     { systemctl stop    ${SERVICE_NAME}.service && ok "已停止"; }
@@ -272,13 +325,15 @@ menu() {
   %b6)%b 重启服务
   %b7)%b 查看状态
   %b8)%b 查看日志 (实时)
+  %b9)%b 修改面板端口
   ----
   %b0)%b 退出
 
 ' "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
   "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
-  "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset"
-    read -p "请选择 [0-8]: " choice
+  "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
+  "$c_bold" "$c_reset"
+    read -p "请选择 [0-9]: " choice
     echo
     case "$choice" in
       1) do_install ;;
@@ -289,12 +344,36 @@ menu() {
       6) do_restart ;;
       7) do_status ;;
       8) do_logs ;;
+      9) do_change_port ;;
       0) exit 0 ;;
       *) warn "无效选择" ;;
     esac
     echo
     read -p "回车返回菜单..." _
   done
+}
+
+# 非交互直接传端口: mesh port 9000
+do_change_port_noninteractive() {
+  local new="$1"
+  [[ -x "$BINARY_PATH" ]] || die "未安装"
+  local db="${INSTALL_DIR}/data/app.db"
+  [[ -f "$db" ]] || die "数据库不存在: $db"
+  [[ "$new" =~ ^[0-9]+$ ]] || die "端口必须是数字"
+  (( new >= 1 && new <= 65535 )) || die "端口范围 1-65535"
+  ensure_sqlite3
+  local cur; cur=$(panel_port_in_db)
+  [[ "$new" == "$cur" ]] && { ok "端口未变 (${cur})"; return; }
+  sqlite3 "$db" "INSERT INTO settings(key,value) VALUES('panel_port','${new}') \
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value;" || die "sqlite3 写入失败"
+  systemctl restart ${SERVICE_NAME}.service
+  sleep 2
+  if curl -fsS "http://127.0.0.1:${new}/api/health" >/dev/null 2>&1; then
+    ok "端口 ${cur} → ${new}"
+  else
+    err "新端口健康检查失败"
+    exit 1
+  fi
 }
 
 # ---- 非交互快捷参数 (用于脚本自动化) ----
@@ -307,6 +386,7 @@ case "${1:-}" in
   restart)   do_restart ;;
   status)    do_status ;;
   logs)      do_logs ;;
+  port)      [[ -n "${2:-}" ]] || die "用法: mesh port <端口号>"; do_change_port_noninteractive "$2" ;;
   ""|menu)   menu ;;
-  *) die "未知命令: $1 (支持: install|update|uninstall|start|stop|restart|status|logs|menu)" ;;
+  *) die "未知命令: $1 (支持: install|update|uninstall|start|stop|restart|status|logs|port|menu)" ;;
 esac
