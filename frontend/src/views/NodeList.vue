@@ -189,7 +189,7 @@
                 <div class="bar-track"><div class="bar-fill" :class="loadLevel(memPct(row.id))" :style="{ width: memPct(row.id) + '%' }" /></div>
               </div>
             </el-tooltip>
-            <el-tooltip v-if="metrics[row.id].swap_total" :content="`${fmtBytes(metrics[row.id].swap_used)} / ${fmtBytes(metrics[row.id].swap_total)}`" placement="top" :show-after="150">
+            <el-tooltip :content="metrics[row.id].swap_total ? `${fmtBytes(metrics[row.id].swap_used)} / ${fmtBytes(metrics[row.id].swap_total)}` : '未配置 Swap'" placement="top" :show-after="150">
               <div class="bar-block">
                 <div class="bar-head">
                   <span>Swap</span>
