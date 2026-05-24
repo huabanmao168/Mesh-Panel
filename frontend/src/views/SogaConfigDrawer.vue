@@ -27,10 +27,9 @@
               plain
               :icon="Promotion"
               :loading="pushingAll"
-              :disabled="!fileModeCount"
-              :title="!instances.length ? '尚无实例' : (!fileModeCount ? '所有实例都走 HTTP 拉取,无需推送' : `推送到 ${fileModeCount} 个本地文件模式实例`)"
+              :disabled="!instances.length"
               @click="pushAll"
-            >重新推送<span v-if="fileModeCount && fileModeCount < instances.length" class="push-count"> · {{ fileModeCount }}/{{ instances.length }}</span></el-button>
+            >重新推送</el-button>
           </div>
         </div>
 
@@ -160,6 +159,14 @@
                   :disabled="inst.enabled === false"
                   @click="openRouteEditor(inst.id)"
                 >配置路由</el-button>
+                <el-button
+                  size="small"
+                  plain
+                  :icon="Refresh"
+                  :loading="restartingId === inst.id"
+                  :disabled="inst.enabled === false"
+                  @click="restartOne(inst)"
+                >重启 soga</el-button>
 
                 <!-- 路由分发 -->
                 <div class="route-source-block">
@@ -227,11 +234,7 @@ const scanning = ref(false)
 const lastScannedAt = ref(null)
 const pushingAll = ref(false)
 const pushingId = ref(null)
-
-// 走「本地文件」模式的实例数量(只有这些需要推送 routes.toml)
-const fileModeCount = computed(
-  () => instances.value.filter(i => i.enabled !== false && (i.route_source || 'file') === 'file').length
-)
+const restartingId = ref(null)
 
 const editingId = ref(null)
 const editingName = ref('')
@@ -280,6 +283,23 @@ async function pushOne(inst) {
     ElMessage.error(e?.response?.data?.detail || '推送失败')
   } finally {
     pushingId.value = null
+  }
+}
+
+async function restartOne(inst) {
+  if (restartingId.value) return
+  try {
+    await ElMessageBox.confirm(`重启 soga 实例 ${inst.folder_name}?`, '重启 soga', { type: 'warning' })
+  } catch { return }
+  restartingId.value = inst.id
+  try {
+    const { data } = await http.post(`/soga/instances/${inst.id}/restart`)
+    if (data?.ok) ElMessage.success(`已重启 ${inst.folder_name}`)
+    else ElMessage.warning(data?.output || '重启返回异常')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '重启失败')
+  } finally {
+    restartingId.value = null
   }
 }
 
