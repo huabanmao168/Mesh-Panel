@@ -80,8 +80,8 @@
         <div class="hint" v-if="derivedEndpoint">推荐:<code>{{ derivedEndpoint }}</code></div>
       </el-form-item>
 
-      <!-- ===== 分区:SoGa 路由分发 ===== -->
-      <div class="section-title">SoGa 路由分发</div>
+      <!-- ===== 分区:Soga 路由分发 ===== -->
+      <div class="section-title">Soga 路由分发</div>
 
       <el-form-item label="面板公网地址">
         <el-input

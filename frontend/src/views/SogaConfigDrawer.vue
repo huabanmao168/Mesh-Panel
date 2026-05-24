@@ -179,16 +179,9 @@
                     @click="applySource(inst)"
                   >应用</el-button>
 
-                  <div class="route-source-detail" v-if="(sourceDraft[inst.id] || inst.route_source || 'file') === 'http'">
-                    <div class="url-row" v-if="inst.routes_token && panelPublicUrl">
-                      <code class="url">{{ buildUrl(inst) }}</code>
-                      <el-button size="small" text @click="copyUrl(inst)">复制</el-button>
-                    </div>
-                    <div class="url-row muted" v-else-if="!panelPublicUrl">
+                  <div class="route-source-detail" v-if="(sourceDraft[inst.id] || inst.route_source || 'file') === 'http' && !panelPublicUrl">
+                    <div class="url-row muted">
                       请先在系统设置填写「面板公网地址」
-                    </div>
-                    <div class="url-row muted" v-else>
-                      点「应用」生成拉取地址
                     </div>
                   </div>
                 </div>
