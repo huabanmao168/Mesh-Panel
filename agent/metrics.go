@@ -27,9 +27,12 @@ type metricsMsg struct {
 	CPUCores int     `json:"cpu_cores"`
 	MemUsed   uint64 `json:"mem_used"`
 	MemTotal  uint64 `json:"mem_total"`
+	SwapUsed  uint64 `json:"swap_used"`
+	SwapTotal uint64 `json:"swap_total"`
 	DiskUsed  uint64 `json:"disk_used"`
 	DiskTotal uint64 `json:"disk_total"`
 	Uptime    int64  `json:"uptime_sec"`
+	OSPretty  string `json:"os_pretty"`
 }
 
 // 静态 CPU 信息，启动时读一次缓存
@@ -37,7 +40,52 @@ var (
 	cpuModelOnce  string
 	cpuCoresOnce  int
 	cpuInfoLoaded bool
+	osPrettyOnce  string
 )
+
+// /etc/os-release: 拼 "Debian 13.5" 这样的字符串. 启动时读一次缓存.
+func loadOSPretty() {
+	if osPrettyOnce != "" {
+		return
+	}
+	f, err := os.Open("/etc/os-release")
+	if err != nil {
+		osPrettyOnce = ""
+		return
+	}
+	defer f.Close()
+	kv := map[string]string{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		idx := strings.Index(line, "=")
+		if idx <= 0 {
+			continue
+		}
+		k := strings.TrimSpace(line[:idx])
+		v := strings.TrimSpace(line[idx+1:])
+		v = strings.Trim(v, `"`)
+		kv[k] = v
+	}
+	// 优先级: PRETTY_NAME > NAME + VERSION_ID > NAME > ID
+	if p := kv["PRETTY_NAME"]; p != "" {
+		osPrettyOnce = p
+		return
+	}
+	name := kv["NAME"]
+	ver := kv["VERSION_ID"]
+	if name != "" && ver != "" {
+		osPrettyOnce = name + " " + ver
+		return
+	}
+	if name != "" {
+		osPrettyOnce = name
+		return
+	}
+	if id := kv["ID"]; id != "" {
+		osPrettyOnce = id
+	}
+}
 
 func loadCPUInfo() {
 	if cpuInfoLoaded {
@@ -271,6 +319,42 @@ func readMem() (used, total uint64, err error) {
 	return used, total, nil
 }
 
+// /proc/meminfo: 读 swap 字节. 没开启 swap 时 total=0
+func readSwap() (used, total uint64, err error) {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, 0, err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	var swapTotalKB, swapFreeKB uint64
+	got := 0
+	for sc.Scan() {
+		line := sc.Text()
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		switch parts[0] {
+		case "SwapTotal:":
+			swapTotalKB, _ = strconv.ParseUint(parts[1], 10, 64)
+			got++
+		case "SwapFree:":
+			swapFreeKB, _ = strconv.ParseUint(parts[1], 10, 64)
+			got++
+		}
+		if got >= 2 {
+			break
+		}
+	}
+	total = swapTotalKB * 1024
+	if swapFreeKB > swapTotalKB {
+		swapFreeKB = swapTotalKB
+	}
+	used = (swapTotalKB - swapFreeKB) * 1024
+	return used, total, nil
+}
+
 // 根分区磁盘使用情况
 func readDisk() (used, total uint64, err error) {
 	var st syscall.Statfs_t
@@ -306,6 +390,7 @@ func readUptime() (int64, error) {
 // 第一次采样不发（要算 delta）
 func metricsLoop(done chan struct{}, interval time.Duration, send func(any) error) {
 	loadCPUInfo()
+	loadOSPretty()
 	var (
 		prevRx, prevTx       uint64
 		prevTotal, prevIdle  uint64
@@ -330,6 +415,7 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 			rx, tx, errN := readIfaceBytes(iface)
 			cpuTotal, cpuIdle, errC := readCPU()
 			memUsed, memTotal, errM := readMem()
+			swapUsed, swapTotal, _ := readSwap()
 			diskUsed, diskTotal, _ := readDisk()
 			upt, errU := readUptime()
 
@@ -374,9 +460,12 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 					CPUCores: cpuCoresOnce,
 					MemUsed:   memUsed,
 					MemTotal:  memTotal,
+					SwapUsed:  swapUsed,
+					SwapTotal: swapTotal,
 					DiskUsed:  diskUsed,
 					DiskTotal: diskTotal,
 					Uptime:    upt,
+					OSPretty:  osPrettyOnce,
 				})
 			}
 			prevRx, prevTx = rx, tx

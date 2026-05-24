@@ -34,6 +34,7 @@ def init_db() -> None:
         _ensure_column(conn, "nodes", "soga_last_scanned_at", "soga_last_scanned_at TEXT")
         _ensure_column(conn, "nodes", "sort_order", "sort_order INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "nodes", "soga_version", "soga_version TEXT")
+        _ensure_column(conn, "nodes", "os_pretty", "os_pretty TEXT")
         _ensure_column(conn, "soga_instances", "sort_order", "sort_order INTEGER NOT NULL DEFAULT 0")
     # 填充默认设置项
     with Session(engine) as s:

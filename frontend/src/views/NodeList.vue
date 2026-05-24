@@ -1016,21 +1016,22 @@ onBeforeUnmount(() => {
 .probe-bars {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 .bar-block { min-width: 0; }
 .bar-head {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 11px; color: var(--probe-muted);
-  margin-bottom: 5px; letter-spacing: 0.02em;
+  font-size: 12px; color: var(--probe-muted);
+  margin-bottom: 6px; letter-spacing: 0.02em;
 }
 .bar-val {
   font-weight: 600; color: var(--probe-text);
-  font-size: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .bar-sub { font-weight: 400; color: var(--probe-muted); margin-left: 3px; }
 .bar-track {
-  height: 4px; background: var(--probe-track);
+  height: 8px; background: var(--probe-track);
   border-radius: 999px; overflow: hidden;
 }
 .bar-fill {

@@ -33,6 +33,20 @@ METRICS_FRESH = timedelta(seconds=15)  # 超过这个就视为过期
 SWEEP_INTERVAL = 30  # 秒
 
 
+def _persist_os_pretty(node_id: int, os_pretty: str) -> None:
+    """把 agent 上报的 os_pretty 写入 nodes 表(只有变化时才写,避免每次心跳都 UPDATE)。"""
+    try:
+        with Session(engine) as s:
+            n = s.get(Node, node_id)
+            if n is not None and n.os_pretty != os_pretty:
+                n.os_pretty = os_pretty
+                n.updated_at = datetime.utcnow()
+                s.add(n)
+                s.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("persist os_pretty failed node_id=%s: %s", node_id, e)
+
+
 def get_metrics(node_id: int) -> Optional[dict]:
     """返回该节点最近一次 metrics（若新鲜），否则 None。"""
     m = _metrics.get(node_id)
@@ -159,11 +173,17 @@ async def node_ws(
                     "cpu_cores": int(msg.get("cpu_cores", 0)),
                     "mem_used": int(msg.get("mem_used", 0)),
                     "mem_total": int(msg.get("mem_total", 0)),
+                    "swap_used": int(msg.get("swap_used", 0)),
+                    "swap_total": int(msg.get("swap_total", 0)),
                     "disk_used": int(msg.get("disk_used", 0)),
                     "disk_total": int(msg.get("disk_total", 0)),
                     "uptime_sec": int(msg.get("uptime_sec", 0)),
                     "_recv_at": datetime.utcnow(),
                 }
+                # os_pretty 老 agent 不上报,值为空时不动 DB;新 agent 上报则持久化
+                os_pretty = msg.get("os_pretty")
+                if os_pretty:
+                    _persist_os_pretty(node_id, os_pretty)
             elif mtype == "ack":
                 log.info("ack node_id=%s action=%s ok=%s msg=%s",
                          node_id, msg.get("action"), msg.get("ok"), msg.get("message"))

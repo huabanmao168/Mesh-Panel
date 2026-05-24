@@ -26,6 +26,7 @@ class Node(NodeBase, table=True):
     last_check_at: Optional[datetime] = Field(default=None)
     last_error: Optional[str] = Field(default=None)
     last_uname: Optional[str] = Field(default=None, description="测连接时 uname -a 输出")
+    os_pretty: Optional[str] = Field(default=None, description="系统名+版本,如 'Debian GNU/Linux 13.5'. agent 或 SSH 测连接探测")
 
     # 部署相关（第 2 块）
     arch: Optional[str] = Field(default=None, description="节点架构 amd64 / arm64 / armv7")
@@ -109,6 +110,7 @@ class NodeRead(SQLModel):
     last_check_at: Optional[datetime]
     last_error: Optional[str]
     last_uname: Optional[str]
+    os_pretty: Optional[str]
     arch: Optional[str]
     singbox_version: Optional[str]
     soga_version: Optional[str]
@@ -139,6 +141,7 @@ class NodeRead(SQLModel):
             last_check_at=n.last_check_at,
             last_error=n.last_error,
             last_uname=n.last_uname,
+            os_pretty=getattr(n, "os_pretty", None),
             arch=n.arch,
             singbox_version=n.singbox_version,
             soga_version=getattr(n, "soga_version", None),
