@@ -271,12 +271,6 @@
             <div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div>
             <div class="rc-bar"><span :class="loadLevel(memPct(row.id))" :style="{ width: Math.min(memPct(row.id), 100) + '%' }" /></div>
           </div>
-          <div class="rc-m" v-if="metrics[row.id].swap_total">
-            <div class="rc-m-label">Swap</div>
-            <div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div>
-            <div class="rc-bar"><span :class="loadLevel(swapPct(row.id))" :style="{ width: Math.min(swapPct(row.id), 100) + '%' }" /></div>
-          </div>
-          <div class="rc-m rc-m-empty" v-else aria-hidden="true"></div>
           <div class="rc-m" v-if="metrics[row.id].disk_total">
             <div class="rc-m-label">存储</div>
             <div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div>
@@ -1153,7 +1147,7 @@ onBeforeUnmount(() => {
 
 .rc-metrics {
   display: grid;
-  grid-template-columns: repeat(6, 72px);
+  grid-template-columns: repeat(5, 72px);
   gap: 0 14px;
   align-items: start;
   min-width: 0;
