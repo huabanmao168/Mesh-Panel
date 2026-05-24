@@ -4,75 +4,85 @@ on:
   push:
     tags:
       - 'v*'
-
-permissions:
-  contents: write  # 用 GITHUB_TOKEN 创建 release 和上传 asset
+  workflow_dispatch:
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  build:
+    name: Build linux-amd64 single binary
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # ---- 前端 build ----
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # --- Go: build agent binaries (3 archs) ---
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build agent binaries
+        run: |
+          cd agent
+          make all VERSION=${GITHUB_REF_NAME#v}
+          ls -lh ../backend/agent_dist/
+
+      # --- Node: build frontend dist ---
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend deps
-        working-directory: frontend
-        run: npm ci
-
       - name: Build frontend
-        working-directory: frontend
-        run: npm run build
-
-      - name: Pack frontend dist
-        run: tar -C frontend -czf frontend-dist.tar.gz dist
-
-      # ---- agent 交叉编译 ----
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache-dependency-path: agent/go.sum
-
-      - name: Build agent (amd64 / arm64 / armv7)
-        working-directory: agent
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p ../release
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-            go build -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o ../release/mesh-agent-amd64 .
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-            go build -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o ../release/mesh-agent-arm64 .
-          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
-            go build -ldflags="-s -w -X main.Version=${VERSION}" \
-            -o ../release/mesh-agent-armv7 .
+          cd frontend
+          npm ci
+          npm run build
+          ls -lh dist/
 
-      - name: Move frontend tarball into release dir
-        run: mv frontend-dist.tar.gz release/
-
-      - name: Compute checksums
-        working-directory: release
-        run: sha256sum * > SHA256SUMS
-
-      # ---- 发 Release ----
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      # --- Python: install deps + pyinstaller ---
+      - uses: actions/setup-python@v5
         with:
-          name: MeshPanel ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller==6.20.0
+
+      # --- PyInstaller: single binary ---
+      - name: Build single binary
+        run: |
+          pyinstaller --clean --noconfirm mesh-panel.spec
+          ls -lh dist/
+          file dist/mesh-panel
+
+      - name: Smoke test binary
+        run: |
+          # 用临时 HOME 跑一下,health 200 才算过
+          MESH_PANEL_HOME=/tmp/smoke-test ./dist/mesh-panel &
+          PID=$!
+          sleep 5
+          curl -fsS http://127.0.0.1:8000/api/health
+          echo ""
+          curl -fsS -o /dev/null -w "GET / → %{http_code}\n" http://127.0.0.1:8000/
+          kill $PID
+          wait $PID 2>/dev/null || true
+
+      - name: Rename for release
+        run: |
+          cd dist
+          mv mesh-panel mesh-panel-linux-amd64
+          sha256sum mesh-panel-linux-amd64 > mesh-panel-linux-amd64.sha256
+          ls -lh
+
+      # --- Publish Release ---
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
           files: |
-            release/mesh-agent-amd64
-            release/mesh-agent-arm64
-            release/mesh-agent-armv7
-            release/frontend-dist.tar.gz
-            release/SHA256SUMS
+            dist/mesh-panel-linux-amd64
+            dist/mesh-panel-linux-amd64.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

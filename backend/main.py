@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from config import BASE_DIR
+from config import BASE_DIR, FRONTEND_DIST
 from database import init_db
+from firstrun import ensure_default_admin
 from api.nodes import router as nodes_router
 from api.settings import router as settings_router
 from api.ss_config import router as ss_router
@@ -20,6 +21,12 @@ from ws.agents import router as ws_router, sweep_offline_loop
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 首跑确保默认管理员存在(admin / admin123456)
+    try:
+        ensure_default_admin()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("默认管理员初始化失败: %s", e)
     # 一次性把存量明文凭据升级为密文
     try:
         from security.crypto import migrate_plaintext_credentials
@@ -95,11 +102,11 @@ app.include_router(soga_router)
 app.include_router(ws_router)
 
 
-# --- 前端静态文件服务（生产模式）---------------------------------
+# --- 前端静态文件服务(生产模式)---------------------------------
 # 开发时前端跑 vite :5173,这段不会命中(因为浏览器直连 5173)。
-# 生产时 install.sh 会把 npm run build 产物放到 frontend/dist/,
+# 生产时 npm run build 产物在 frontend/dist/,
 # 由 FastAPI 同端口 serve,前端和 API/WS 同源,agent 走同一端口回连。
-FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+# PyInstaller 打包后 FRONTEND_DIST 指向 _MEIPASS/frontend/dist。
 if FRONTEND_DIST.is_dir():
     assets_dir = FRONTEND_DIST / "assets"
     if assets_dir.is_dir():
@@ -114,3 +121,13 @@ if FRONTEND_DIST.is_dir():
         if full_path and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(FRONTEND_DIST / "index.html")
+
+
+# --- PyInstaller 入口:打包后 sys.frozen=True,直接起 uvicorn -----
+# 源码模式不会进这里(用 `uvicorn main:app` 起)。
+if __name__ == "__main__":
+    import os
+    import uvicorn
+    host = os.environ.get("MESH_PANEL_HOST", "0.0.0.0")
+    port = int(os.environ.get("MESH_PANEL_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port, log_level="info")

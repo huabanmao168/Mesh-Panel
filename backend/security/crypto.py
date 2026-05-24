@@ -21,8 +21,8 @@ log = logging.getLogger(__name__)
 
 PREFIX = "enc:v1:"
 
-# data/ 目录由 database.py 创建,这里复用约定
-_DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+# 从 config 拿统一的 DATA_DIR(支持 $MESH_PANEL_HOME / PyInstaller)
+from config import DATA_DIR as _DATA_DIR
 _KEY_PATH = _DATA_DIR / "secret.key"
 
 _fernet: Optional[Fernet] = None

@@ -10,7 +10,7 @@ from typing import Optional
 
 import paramiko
 
-from config import BASE_DIR
+from config import AGENT_DIST_DIR
 from ssh.client import _load_pkey
 from security.crypto import decrypt
 from deploy.scripts import INSTALL_SH
@@ -20,7 +20,6 @@ DEPLOY_IDLE_TIMEOUT = 180  # 静默超时(秒) — 3 分钟没任何输出视为
 LOG_MAX_BYTES = 16 * 1024
 RESULT_MARKER = "---MESH-PANEL-RESULT---"
 
-AGENT_DIST_DIR = BASE_DIR / "backend" / "agent_dist"
 AGENT_REMOTE_PATH = "/opt/meshPanel/mesh-agent"
 
 
