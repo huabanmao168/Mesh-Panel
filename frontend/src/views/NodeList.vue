@@ -265,8 +265,8 @@
           <div class="rc-m"><div class="rc-m-label">内存</div><div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div></div>
           <div class="rc-m" v-if="metrics[row.id].swap_total"><div class="rc-m-label">Swap</div><div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div></div>
           <div class="rc-m" v-if="metrics[row.id].disk_total"><div class="rc-m-label">存储</div><div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div></div>
-          <div class="rc-m"><div class="rc-m-label">上传</div><div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div></div>
-          <div class="rc-m"><div class="rc-m-label">下载</div><div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div></div>
+          <div class="rc-m rc-net"><div class="rc-m-label"><el-icon><Top /></el-icon></div><div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div></div>
+          <div class="rc-m rc-net"><div class="rc-m-label"><el-icon><Bottom /></el-icon></div><div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div></div>
         </div>
         <div v-else-if="row.agent_status === 'online'" class="rc-metrics-empty">
           <el-icon class="loading-icon"><Loading /></el-icon> 正在采样...
@@ -1129,24 +1129,33 @@ onBeforeUnmount(() => {
 
 .rc-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px 12px;
+  grid-template-columns: 56px 56px 56px 56px 1fr 1fr;
+  gap: 0 22px;
   min-width: 0;
+  align-items: center;
 }
-.rc-metrics .rc-m { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
-.rc-m-label { font-size: 10px; color: #9ca3af; letter-spacing: 0.04em; line-height: 1.2; }
+.rc-metrics .rc-m {
+  min-width: 0;
+  display: flex; flex-direction: row; align-items: baseline; gap: 6px;
+}
+.rc-metrics .rc-m.rc-net { gap: 4px; }
+.rc-metrics .rc-m.rc-net .el-icon { font-size: 11px; color: #9ca3af; position: relative; top: 1px; }
+.rc-m-label {
+  font-size: 11px; color: #6b7280; letter-spacing: 0.02em; line-height: 1;
+  flex: 0 0 auto;
+}
 .rc-m-val {
   font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  margin-top: 1px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  color: #1f2937;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-.rc-m-val.lv-ok     { color: #22c55e; }
-.rc-m-val.lv-warn   { color: #f59e0b; }
-.rc-m-val.lv-danger { color: #ef4444; }
-.rc-m-val.rc-up   { color: #ef4444; }   /* 上传红 */
-.rc-m-val.rc-down { color: #22c55e; }   /* 下载绿 */
+.rc-m-val.lv-ok     { color: #1f2937; }
+.rc-m-val.lv-warn   { color: #d97706; }
+.rc-m-val.lv-danger { color: #dc2626; }
+.rc-m-val.rc-up,
+.rc-m-val.rc-down   { color: #16a34a; }
 
 .rc-metrics-empty {
   font-size: 12px; color: #9ca3af;
