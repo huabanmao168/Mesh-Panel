@@ -37,6 +37,14 @@
         {{ t.label }}
         <span class="kind-tab-count">{{ t.count }}</span>
       </button>
+      <div class="view-switch" role="group" aria-label="视图切换">
+        <button class="vs-btn" :class="{ active: viewMode==='card' }" @click="setViewMode('card')" title="卡片视图">
+          <el-icon><Grid /></el-icon>
+        </button>
+        <button class="vs-btn" :class="{ active: viewMode==='compact' }" @click="setViewMode('compact')" title="紧凑视图">
+          <el-icon><Menu /></el-icon>
+        </button>
+      </div>
     </div>
 
     <!-- 空状态 -->
@@ -48,11 +56,12 @@
       <el-button v-if="nodes.length === 0" type="primary" @click="openCreate">添加第一个节点</el-button>
     </el-empty>
 
-    <!-- 卡片视图 -->
+    <!-- 节点列表 (卡片 / 紧凑) -->
     <draggable
       v-else
       v-model="nodes"
       class="grid"
+      :class="`grid-${viewMode}`"
       item-key="id"
       handle=".drag-handle"
       :animation="180"
@@ -62,7 +71,8 @@
       v-loading="loading && nodes.length === 0"
     >
       <template #item="{ element: row }">
-      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
+      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="node-item">
+      <div v-if="viewMode==='card'" class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
         <div class="card-head">
           <span
             class="drag-handle"
@@ -78,8 +88,9 @@
                 <img v-if="row.country" class="flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
                 {{ row.name }}
               </div>
-              <div v-if="metrics[row.id]?.cpu_model" class="subtitle" :title="metrics[row.id].cpu_model">
-                {{ metrics[row.id].cpu_model }}
+              <div v-if="metrics[row.id]?.cpu_model || metrics[row.id]?.os_pretty" class="subtitle" :title="[metrics[row.id]?.cpu_model, metrics[row.id]?.os_pretty].filter(Boolean).join(' · ')">
+                <span v-if="metrics[row.id]?.os_pretty" class="os-chip">{{ metrics[row.id].os_pretty }}</span>
+                <span v-if="metrics[row.id]?.cpu_model" class="cpu-text">{{ metrics[row.id].cpu_model }}</span>
               </div>
             </div>
           </div>
@@ -166,7 +177,7 @@
                   <span>CPU</span>
                   <span class="bar-val">{{ Math.round(metrics[row.id].cpu_pct) }}%</span>
                 </div>
-                <div class="bar-track"><div class="bar-fill cpu" :style="{ width: Math.max(2, Math.min(100, metrics[row.id].cpu_pct)) + '%' }" /></div>
+                <div class="bar-track"><div class="bar-fill" :class="loadLevel(metrics[row.id].cpu_pct)" :style="{ width: Math.max(2, Math.min(100, metrics[row.id].cpu_pct)) + '%' }" /></div>
               </div>
             </el-tooltip>
             <el-tooltip :content="`${fmtBytes(metrics[row.id].mem_used)} / ${fmtBytes(metrics[row.id].mem_total)}`" placement="top" :show-after="150">
@@ -175,7 +186,16 @@
                   <span>内存</span>
                   <span class="bar-val">{{ memPct(row.id) }}%</span>
                 </div>
-                <div class="bar-track"><div class="bar-fill mem" :style="{ width: memPct(row.id) + '%' }" /></div>
+                <div class="bar-track"><div class="bar-fill" :class="loadLevel(memPct(row.id))" :style="{ width: memPct(row.id) + '%' }" /></div>
+              </div>
+            </el-tooltip>
+            <el-tooltip v-if="metrics[row.id].swap_total" :content="`${fmtBytes(metrics[row.id].swap_used)} / ${fmtBytes(metrics[row.id].swap_total)}`" placement="top" :show-after="150">
+              <div class="bar-block">
+                <div class="bar-head">
+                  <span>Swap</span>
+                  <span class="bar-val">{{ swapPct(row.id) }}%</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" :class="loadLevel(swapPct(row.id))" :style="{ width: Math.max(2, swapPct(row.id)) + '%' }" /></div>
               </div>
             </el-tooltip>
             <el-tooltip v-if="metrics[row.id].disk_total" :content="`${fmtBytes(metrics[row.id].disk_used)} / ${fmtBytes(metrics[row.id].disk_total)}`" placement="top" :show-after="150">
@@ -184,7 +204,7 @@
                   <span>硬盘</span>
                   <span class="bar-val">{{ diskPct(row.id) }}%</span>
                 </div>
-                <div class="bar-track"><div class="bar-fill disk" :style="{ width: diskPct(row.id) + '%' }" /></div>
+                <div class="bar-track"><div class="bar-fill" :class="loadLevel(diskPct(row.id))" :style="{ width: diskPct(row.id) + '%' }" /></div>
               </div>
             </el-tooltip>
           </div>
@@ -223,6 +243,54 @@
             class="quick-btn"
           >{{ row.deploy_status === 'failed' ? '重试部署' : '部署' }}</el-button>
         </div>
+      </div>
+      <!-- 紧凑视图 -->
+      <div v-else class="row-compact" :class="{ 'rc-online': row.agent_status === 'online', 'rc-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
+        <span class="drag-handle rc-drag" :class="{ disabled: kindFilter !== 'all' }" :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'">⠿</span>
+        <span class="rc-dot" :class="row.agent_status === 'online' ? 'on' : 'off'" />
+        <img v-if="row.country" class="flag rc-flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
+        <div class="rc-name-wrap">
+          <div class="rc-name">
+            <span class="kind-chip" :class="`kind-${row.kind || 'landing'}`">{{ kindLabel(row.kind) }}</span>
+            <span class="rc-name-text" :title="row.name">{{ row.name }}</span>
+          </div>
+          <div v-if="metrics[row.id]?.os_pretty || row.host" class="rc-sub">
+            <span v-if="metrics[row.id]?.os_pretty" class="rc-os">{{ metrics[row.id].os_pretty }}</span>
+            <span v-if="row.host" class="rc-host">{{ row.host }}</span>
+          </div>
+        </div>
+
+        <div class="rc-metrics" v-if="metrics[row.id]">
+          <div class="rc-m"><div class="rc-m-label">CPU</div><div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(2) }}%</div></div>
+          <div class="rc-m"><div class="rc-m-label">内存</div><div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div></div>
+          <div class="rc-m" v-if="metrics[row.id].swap_total"><div class="rc-m-label">Swap</div><div class="rc-m-val" :class="loadLevel(swapPct(row.id))">{{ swapPct(row.id) }}%</div></div>
+          <div class="rc-m" v-if="metrics[row.id].disk_total"><div class="rc-m-label">存储</div><div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div></div>
+          <div class="rc-m"><div class="rc-m-label">上传</div><div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div></div>
+          <div class="rc-m"><div class="rc-m-label">下载</div><div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div></div>
+        </div>
+        <div v-else-if="row.agent_status === 'online'" class="rc-metrics-empty">
+          <el-icon class="loading-icon"><Loading /></el-icon> 正在采样...
+        </div>
+        <div v-else class="rc-metrics-empty muted">无数据</div>
+
+        <div class="rc-track-wrap" v-if="metrics[row.id]">
+          <div class="rc-track"><div class="rc-fill" :class="loadLevel(maxLoad(row.id))" :style="{ width: Math.max(2, maxLoad(row.id)) + '%' }" /></div>
+        </div>
+
+        <el-dropdown trigger="click" @command="(c) => onCardCmd(c, row)">
+          <el-button text :icon="MoreFilled" class="rc-more" />
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="edit"><el-icon><Edit /></el-icon> 编辑</el-dropdown-item>
+              <el-dropdown-item command="test"><el-icon><Refresh /></el-icon> 测连接</el-dropdown-item>
+              <el-dropdown-item v-if="row.deploy_status !== 'deployed'" command="deploy"><el-icon><Upload /></el-icon> 部署</el-dropdown-item>
+              <el-dropdown-item v-if="row.deploy_status === 'deployed'" command="upgrade"><el-icon><Upload /></el-icon> 升级 agent</el-dropdown-item>
+              <el-dropdown-item v-if="row.deploy_status === 'deployed'" command="uninstall" divided><el-icon><RemoveFilled /></el-icon> 卸载</el-dropdown-item>
+              <el-dropdown-item command="del" divided><el-icon><Delete /></el-icon> 删除</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
       </div>
       </template>
     </draggable>
@@ -364,7 +432,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus, Refresh, MoreFilled, Monitor, Clock,
   Upload, Setting, Document, Edit, Delete, RemoveFilled, CopyDocument,
-  Top, Bottom, Cpu, Loading,
+  Top, Bottom, Cpu, Loading, Grid, Menu,
 } from '@element-plus/icons-vue'
 import { nodeApi } from '../api.js'
 import draggable from 'vuedraggable'
@@ -375,6 +443,12 @@ const ssDrawerRef = ref(null)
 const sogaDrawerRef = ref(null)
 const nodes = ref([])
 const kindFilter = ref('all')   // all | landing | soga
+const viewMode = ref('card')    // card | compact
+
+function setViewMode(v) {
+  viewMode.value = v
+  try { localStorage.setItem('mesh:nodeListView', v) } catch {}
+}
 const metrics = ref({})  // node_id -> { rx_bps, tx_bps, cpu_pct, mem_used, mem_total, uptime_sec, iface }
 const loading = ref(false)
 const dialogOpen = ref(false)
@@ -574,6 +648,28 @@ function diskPct(id) {
   return Math.max(2, Math.round(m.disk_used / m.disk_total * 100))
 }
 
+function swapPct(id) {
+  const m = metrics.value[id]
+  if (!m || !m.swap_total) return 0
+  return Math.round(m.swap_used / m.swap_total * 100)
+}
+
+// 阈值:≥85 危险红 / ≥70 警告黄 / 其它 正常冷色
+function loadLevel(pct) {
+  const v = Number(pct) || 0
+  if (v >= 85) return 'lv-danger'
+  if (v >= 70) return 'lv-warn'
+  return 'lv-ok'
+}
+
+// 紧凑视图底部进度条:取 CPU/内存/Swap/存储 最大值,反映整机最紧资源
+function maxLoad(id) {
+  const m = metrics.value[id]
+  if (!m) return 0
+  const arr = [Number(m.cpu_pct) || 0, memPct(id), swapPct(id), diskPct(id)]
+  return Math.min(100, Math.round(Math.max(...arr)))
+}
+
 function resetForm() {
   Object.assign(form, emptyForm())
   editingId.value = null
@@ -735,6 +831,11 @@ function onResize() { winW.value = window.innerWidth }
 let timer = null
 let metricsTimer = null
 onMounted(() => {
+  // 恢复视图偏好
+  try {
+    const v = localStorage.getItem('mesh:nodeListView')
+    if (v === 'card' || v === 'compact') viewMode.value = v
+  } catch {}
   load()
   loadMetrics()
   // 拉一下面板版本,用于 agent 版本对比着色
@@ -861,9 +962,11 @@ onBeforeUnmount(() => {
 /* 卡片网格 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 14px;
 }
+.grid-card { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.grid-compact { grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 10px; }
+.node-item { min-width: 0; }
 .card {
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -960,6 +1063,122 @@ onBeforeUnmount(() => {
 .card-quick { display: flex; gap: 6px; }
 .card-quick .quick-btn { flex: 1; }
 
+/* ===== 紧凑视图 ===== */
+.row-compact {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto auto auto minmax(140px, 1.2fr) minmax(0, 2.4fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.15s;
+  position: relative;
+  min-width: 0;
+}
+.row-compact:hover { border-color: #d4d8de; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.row-compact.rc-online { border-left: 3px solid #22c55e; padding-left: 10px; }
+.row-compact.rc-offline { border-left: 3px solid #ef4444; padding-left: 10px; opacity: 0.78; }
+
+.rc-drag {
+  color: #cbd5e1; cursor: grab; user-select: none;
+  font-size: 14px; padding: 2px 4px;
+}
+.rc-drag.disabled { color: #e5e7eb; cursor: not-allowed; }
+.rc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #d1d5db; flex: 0 0 auto;
+}
+.rc-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.15); }
+.rc-dot.off { background: #ef4444; }
+
+.rc-flag { width: 22px; height: 16px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.06); flex: 0 0 auto; }
+
+.rc-name-wrap { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rc-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rc-name .kind-chip { flex: 0 0 auto; }
+.rc-name-text {
+  font-weight: 600; color: #1f2937; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rc-sub {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 11px; color: #9ca3af;
+}
+.rc-sub .rc-os {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  background: rgba(99,102,241,0.08); color: #6366f1;
+  border-radius: 3px;
+  font-weight: 600; font-size: 10px;
+}
+.rc-sub .rc-host {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.rc-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px 12px;
+  min-width: 0;
+}
+.rc-metrics .rc-m { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.rc-m-label { font-size: 10px; color: #9ca3af; letter-spacing: 0.04em; line-height: 1.2; }
+.rc-m-val {
+  font-size: 13px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.rc-m-val.lv-ok     { color: #22c55e; }
+.rc-m-val.lv-warn   { color: #f59e0b; }
+.rc-m-val.lv-danger { color: #ef4444; }
+.rc-m-val.rc-up   { color: #ef4444; }   /* 上传红 */
+.rc-m-val.rc-down { color: #22c55e; }   /* 下载绿 */
+
+.rc-metrics-empty {
+  font-size: 12px; color: #9ca3af;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.rc-metrics-empty.muted { opacity: 0.6; }
+
+.rc-track-wrap { width: 80px; flex: 0 0 auto; }
+.rc-track {
+  height: 4px; background: #f1f3f5;
+  border-radius: 999px; overflow: hidden;
+}
+.rc-fill {
+  height: 100%; border-radius: 999px;
+  transition: width 0.4s ease, background 0.3s ease;
+}
+.rc-fill.lv-ok     { background: #22c55e; }
+.rc-fill.lv-warn   { background: #f59e0b; }
+.rc-fill.lv-danger { background: #ef4444; }
+
+.rc-more { padding: 4px 6px; }
+
+/* 窄屏自适应:小于 1100px,堆叠成两行 */
+@media (max-width: 1100px) {
+  .row-compact {
+    grid-template-columns: auto auto auto 1fr auto;
+    grid-template-areas:
+      "drag dot flag name more"
+      "metrics metrics metrics metrics metrics"
+      "track track track track track";
+    row-gap: 8px;
+  }
+  .rc-drag { grid-area: drag; }
+  .rc-dot { grid-area: dot; }
+  .rc-flag { grid-area: flag; }
+  .rc-name-wrap { grid-area: name; }
+  .rc-metrics, .rc-metrics-empty { grid-area: metrics; }
+  .rc-track-wrap { grid-area: track; width: 100%; }
+  .rc-more { grid-area: more; }
+}
+
 /* 状态点 */
 .dot {
   display: inline-block; width: 8px; height: 8px;
@@ -1037,11 +1256,11 @@ onBeforeUnmount(() => {
 .bar-fill {
   height: 100%; border-radius: 999px;
   background: var(--probe-accent);
-  transition: width 0.4s ease;
+  transition: width 0.4s ease, background 0.3s ease;
 }
-.bar-fill.cpu  { opacity: 1; }
-.bar-fill.mem  { opacity: 0.75; }
-.bar-fill.disk { opacity: 0.5; }
+.bar-fill.lv-ok     { background: var(--probe-accent); }
+.bar-fill.lv-warn   { background: #f59e0b; }   /* 黄 ≥70% */
+.bar-fill.lv-danger { background: #ef4444; }   /* 红 ≥85% */
 
 /* 累计流量：低优先级，灰一层 */
 .probe-total {
@@ -1073,6 +1292,20 @@ onBeforeUnmount(() => {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding-top: 4px;
   border-top: 1px dashed #eef0f3;
+  display: flex; align-items: center; gap: 6px;
+}
+.title-text .subtitle .os-chip {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  background: rgba(99, 102, 241, 0.08);
+  color: #6366f1;
+  border-radius: 4px;
+  font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.title-text .subtitle .cpu-text {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* host 行的网卡 chip */
@@ -1150,8 +1383,29 @@ onBeforeUnmount(() => {
   padding: 4px;
   background: #f3f4f6;
   border-radius: 10px;
-  width: fit-content;
+  align-items: center;
 }
+.kind-tabs .view-switch {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(255,255,255,0.7);
+  border-radius: 7px;
+}
+.kind-tabs .vs-btn {
+  appearance: none; border: 0; background: transparent;
+  padding: 5px 9px; border-radius: 5px; cursor: pointer;
+  color: #9ca3af; display: inline-flex; align-items: center;
+  transition: all 0.15s;
+}
+.kind-tabs .vs-btn:hover { color: #4b5563; }
+.kind-tabs .vs-btn.active {
+  background: #fff;
+  color: #6366f1;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.kind-tabs .vs-btn .el-icon { font-size: 15px; }
 .kind-tab {
   appearance: none;
   border: 0;
