@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from version import __version__ as MESH_VERSION
 from config import BASE_DIR, FRONTEND_DIST
 from database import init_db
 from firstrun import ensure_default_admin
@@ -91,7 +92,7 @@ async def auth_middleware(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "data": {"service": "MeshPanel", "version": "1.1.12"}}
+    return {"ok": True, "data": {"service": "MeshPanel", "version": MESH_VERSION}}
 
 
 app.include_router(auth_router)
@@ -134,8 +135,7 @@ if __name__ == "__main__":
 
     # --version / -v: 不启服务,只打印版本号(install.sh 检测当前版本用)
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-v"):
-        from version import __version__
-        print(__version__)
+        print(MESH_VERSION)
         sys.exit(0)
 
     import uvicorn

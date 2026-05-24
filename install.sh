@@ -107,6 +107,8 @@ download_binary() {
     || die "下载失败: $url"
   chmod +x "${BINARY_PATH}.new"
   mv -f "${BINARY_PATH}.new" "$BINARY_PATH"
+  # 清理老版本 (<=v2.0.1) 残留的 VERSION 文件,新版本由二进制 --version 提供
+  rm -f "${INSTALL_DIR}/VERSION"
   ok "二进制就绪: $BINARY_PATH"
 }
 

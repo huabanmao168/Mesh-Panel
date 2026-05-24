@@ -37,6 +37,10 @@ export const authApi = {
   changePassword: (payload) => http.post('/auth/change-password', payload),
 }
 
+export const systemApi = {
+  health: () => http.get('/health'),
+}
+
 export const nodeApi = {
   list: () => http.get('/nodes'),
   metrics: () => http.get('/nodes/metrics'),

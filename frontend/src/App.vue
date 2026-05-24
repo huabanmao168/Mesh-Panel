@@ -15,7 +15,7 @@
       <div class="brand">
         <div class="logo">MP</div>
         <div class="brand-text">
-          <div class="brand-title">MeshPanel <span class="brand-ver">v1.1.12</span></div>
+          <div class="brand-title">MeshPanel <span v-if="appVersion" class="brand-ver">v{{ appVersion }}</span></div>
           <div class="brand-sub">一站式服务器管理</div>
         </div>
       </div>
@@ -62,13 +62,14 @@ import NodeList from './views/NodeList.vue'
 import SettingsDialog from './views/SettingsDialog.vue'
 import LoginView from './views/LoginView.vue'
 import ChangePasswordDialog from './views/ChangePasswordDialog.vue'
-import { authApi, settingsApi } from './api.js'
+import { authApi, settingsApi, systemApi } from './api.js'
 
 const loading = ref(true)
 const authed = ref(false)
 const setupRequired = ref(false)
 const username = ref('')
 const warnNoEndpoint = ref(false)
+const appVersion = ref('')
 
 const settingsRef = ref(null)
 const nodeListRef = ref(null)
@@ -76,6 +77,11 @@ const pwdRef = ref(null)
 
 async function bootstrap() {
   loading.value = true
+  // 拉版本号(失败也不影响后续流程)
+  try {
+    const h = await systemApi.health()
+    appVersion.value = h.data?.version || ''
+  } catch {}
   try {
     const st = await authApi.status()
     setupRequired.value = !!st.data.setup_required
