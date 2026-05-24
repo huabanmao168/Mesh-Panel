@@ -27,9 +27,10 @@
               plain
               :icon="Promotion"
               :loading="pushingAll"
-              :disabled="!instances.length"
+              :disabled="!fileModeCount"
+              :title="!instances.length ? '尚无实例' : (!fileModeCount ? '所有实例都走 HTTP 拉取,无需推送' : `推送到 ${fileModeCount} 个本地文件模式实例`)"
               @click="pushAll"
-            >重新推送</el-button>
+            >重新推送<span v-if="fileModeCount && fileModeCount < instances.length" class="push-count"> · {{ fileModeCount }}/{{ instances.length }}</span></el-button>
           </div>
         </div>
 
@@ -226,6 +227,11 @@ const scanning = ref(false)
 const lastScannedAt = ref(null)
 const pushingAll = ref(false)
 const pushingId = ref(null)
+
+// 走「本地文件」模式的实例数量(只有这些需要推送 routes.toml)
+const fileModeCount = computed(
+  () => instances.value.filter(i => i.enabled !== false && (i.route_source || 'file') === 'file').length
+)
 
 const editingId = ref(null)
 const editingName = ref('')
