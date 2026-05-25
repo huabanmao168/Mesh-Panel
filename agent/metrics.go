@@ -393,12 +393,27 @@ func readUptime() (int64, error) {
 // readConnState 用 goss (netlink INET_DIAG) 数 IPv4+IPv6 的 TCP/UDP socket 数
 // 比 /proc/net/sockstat 的 inuse 准: sockstat 漏算 UDP 的 UNCONN 状态
 // goss 任一调用失败,该协议族就计 0,不做 /proc fallback (老 fallback 在十万 socket 机器上要 fork 数秒)
+//
+// TCP 只计 ESTABLISHED 状态 (跟哪吓服务端 net.Connections 默认显示对齐):
+// 高流量代理机 TIME_WAIT 占 80%+,全计会虚高,只看真正在传的连接更有意义.
+// UDP 保留总数不过滤: soga 等 UDP 中转都是 UNCONN socket (State != ESTABLISHED),
+// 滤了直接归 0.
+func countEstablishedTCP(ms []*goss.InetDiagMsg) uint64 {
+	var n uint64
+	for _, m := range ms {
+		if goss.TCPState(m.State) == goss.TCP_ESTABLISHED {
+			n++
+		}
+	}
+	return n
+}
+
 func readConnState() (tcp, udp uint64) {
 	if s, err := goss.ConnectionsWithProtocol(goss.AF_INET, syscall.IPPROTO_TCP); err == nil {
-		tcp += uint64(len(s))
+		tcp += countEstablishedTCP(s)
 	}
 	if s, err := goss.ConnectionsWithProtocol(goss.AF_INET6, syscall.IPPROTO_TCP); err == nil {
-		tcp += uint64(len(s))
+		tcp += countEstablishedTCP(s)
 	}
 	if s, err := goss.ConnectionsWithProtocol(goss.AF_INET, syscall.IPPROTO_UDP); err == nil {
 		udp += uint64(len(s))
