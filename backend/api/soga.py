@@ -429,6 +429,31 @@ def patch_instance(instance_id: int, payload: dict, session: Session = Depends(g
     }
 
 
+@router.delete("/instances/{instance_id}")
+def delete_instance(instance_id: int, session: Session = Depends(get_session)):
+    """删除一个已消失的实例(级联清 routes / route_outs)。
+
+    安全规则:仅允许 enabled=False 的实例被删,防止误删还活着的。
+    活实例要清,只能在节点上 rm -rf /etc/soga/<folder>/ 后再扫一次。
+    """
+    inst = session.get(SogaInstance, instance_id)
+    if not inst:
+        raise HTTPException(404, "实例不存在")
+    if inst.enabled:
+        raise HTTPException(400, "实例仍存活,请先在节点删除对应 /etc/soga/<folder>/ 目录并重新扫描")
+
+    # 级联清:routes -> route_outs -> instance
+    old_routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == instance_id)).all()
+    for r in old_routes:
+        for o in session.exec(select(SogaRouteOut).where(SogaRouteOut.route_id == r.id)).all():
+            session.delete(o)
+        session.delete(r)
+    folder = inst.folder_name
+    session.delete(inst)
+    session.commit()
+    return {"ok": True, "deleted": {"id": instance_id, "folder_name": folder}}
+
+
 @router.post("/instances/{instance_id}/push")
 def push_single_instance(instance_id: int, session: Session = Depends(get_session)):
     """重推单个实例的 routes.toml。"""

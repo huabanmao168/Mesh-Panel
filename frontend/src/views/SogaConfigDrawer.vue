@@ -136,6 +136,17 @@
                   </div>
                   <span class="route-count"><strong>{{ inst.route_count ?? '?' }}</strong> 条用户路由</span>
                   <el-tag v-if="inst.enabled === false" size="small" type="info" effect="plain">已消失</el-tag>
+                  <el-button
+                    v-if="inst.enabled === false"
+                    size="small"
+                    text
+                    class="del-btn"
+                    :loading="deletingId === inst.id"
+                    @click="removeOne(inst)"
+                    title="删除该实例(含路由)"
+                  >
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
                 </div>
                 <el-button
                   size="small"
@@ -209,7 +220,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Promotion, Edit } from '@element-plus/icons-vue'
+import { Refresh, Promotion, Edit, Delete } from '@element-plus/icons-vue'
 import http from '../api.js'
 import { settingsApi } from '../api.js'
 import draggable from 'vuedraggable'
@@ -234,6 +245,7 @@ const lastScannedAt = ref(null)
 const pushingAll = ref(false)
 const pushingId = ref(null)
 const restartingId = ref(null)
+const deletingId = ref(null)
 
 const editingId = ref(null)
 const editingName = ref('')
@@ -299,6 +311,28 @@ async function restartOne(inst) {
     ElMessage.error(e?.response?.data?.detail || '重启失败')
   } finally {
     restartingId.value = null
+  }
+}
+
+async function removeOne(inst) {
+  if (deletingId.value) return
+  try {
+    await ElMessageBox.confirm(
+      `永久删除已消失实例 ${inst.folder_name}?\n关联的用户路由和落地映射也会一起清掉,操作不可恢复。`,
+      '删除实例',
+      { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
+    )
+  } catch { return }
+  deletingId.value = inst.id
+  try {
+    await http.delete(`/soga/instances/${inst.id}`)
+    ElMessage.success(`已删除 ${inst.folder_name}`)
+    // 从本地列表移除,不用整个重拉
+    instances.value = instances.value.filter(x => x.id !== inst.id)
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
+  } finally {
+    deletingId.value = null
   }
 }
 
@@ -842,6 +876,12 @@ defineExpose({ open })
   margin-left: -2px;
 }
 .alias-btn:hover { color: #4f46e5; }
+.del-btn {
+  padding: 0 4px;
+  min-height: 22px;
+  color: #9ca3af;
+}
+.del-btn:hover { color: #ef4444; }
 .alias-input { width: 200px; }
 .route-count {
   font-size: 12px;
