@@ -185,6 +185,17 @@
               </div>
             </el-tooltip>
           </div>
+          <div v-if="metrics[row.id]?.tcp_conn !== undefined || metrics[row.id]?.udp_conn !== undefined" class="probe-row probe-conn">
+            <div class="conn-item">
+              <span class="conn-label">TCP</span>
+              <span class="conn-val">{{ metrics[row.id].tcp_conn ?? 0 }}</span>
+            </div>
+            <div class="speed-divider" />
+            <div class="conn-item">
+              <span class="conn-label">UDP</span>
+              <span class="conn-val">{{ metrics[row.id].udp_conn ?? 0 }}</span>
+            </div>
+          </div>
           <div class="probe-row probe-total">
             <div class="total-item down">
               <el-icon><Bottom /></el-icon>
@@ -1212,6 +1223,28 @@ onBeforeUnmount(() => {
 .total-item.up .el-icon { color: #6366f1; }
 .total-val {
   font-size: 14px; font-weight: 600; color: var(--probe-text);
+}
+
+/* TCP/UDP 连接数 */
+.probe-conn {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  align-items: center;
+}
+.conn-item {
+  display: flex; align-items: baseline; justify-content: center; gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.conn-label {
+  font-size: 11px;
+  color: #6b7280;
+  letter-spacing: 0.5px;
+}
+.conn-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 /* 卡片头部副标题（CPU 型号等） */

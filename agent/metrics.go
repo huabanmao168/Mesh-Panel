@@ -31,6 +31,8 @@ type metricsMsg struct {
 	SwapTotal uint64 `json:"swap_total"`
 	DiskUsed  uint64 `json:"disk_used"`
 	DiskTotal uint64 `json:"disk_total"`
+	TCPConn   uint32 `json:"tcp_conn"`
+	UDPConn   uint32 `json:"udp_conn"`
 	Uptime    int64  `json:"uptime_sec"`
 	OSPretty  string `json:"os_pretty"`
 }
@@ -386,6 +388,40 @@ func readUptime() (int64, error) {
 	return int64(f), nil
 }
 
+// /proc/net/sockstat 例:
+// sockets: used 234
+// TCP: inuse 124 orphan 0 tw 38 alloc 124 mem 5
+// UDP: inuse 6 mem 2
+// 取 TCP/UDP 的 inuse 字段(实际使用中的 socket 数)
+func readSockstat() (tcp, udp uint32) {
+	f, err := os.Open("/proc/net/sockstat")
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		switch fields[0] {
+		case "TCP:":
+			if fields[1] == "inuse" {
+				v, _ := strconv.ParseUint(fields[2], 10, 32)
+				tcp = uint32(v)
+			}
+		case "UDP:":
+			if fields[1] == "inuse" {
+				v, _ := strconv.ParseUint(fields[2], 10, 32)
+				udp = uint32(v)
+			}
+		}
+	}
+	return tcp, udp
+}
+
 // metricsLoop 每 interval 采一次样并通过 send 推出
 // 第一次采样不发（要算 delta）
 func metricsLoop(done chan struct{}, interval time.Duration, send func(any) error) {
@@ -418,6 +454,7 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 			swapUsed, swapTotal, _ := readSwap()
 			diskUsed, diskTotal, _ := readDisk()
 			upt, errU := readUptime()
+			tcpConn, udpConn := readSockstat()
 
 			if errN != nil || errC != nil || errM != nil || errU != nil {
 				// 网卡名错也只是 0 速率，不致命；继续采样
@@ -464,6 +501,8 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 					SwapTotal: swapTotal,
 					DiskUsed:  diskUsed,
 					DiskTotal: diskTotal,
+					TCPConn:   tcpConn,
+					UDPConn:   udpConn,
 					Uptime:    upt,
 					OSPretty:  osPrettyOnce,
 				})

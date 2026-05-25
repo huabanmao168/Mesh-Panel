@@ -177,6 +177,8 @@ async def node_ws(
                     "swap_total": int(msg.get("swap_total", 0)),
                     "disk_used": int(msg.get("disk_used", 0)),
                     "disk_total": int(msg.get("disk_total", 0)),
+                    "tcp_conn": int(msg.get("tcp_conn", 0)),
+                    "udp_conn": int(msg.get("udp_conn", 0)),
                     "uptime_sec": int(msg.get("uptime_sec", 0)),
                     "_recv_at": datetime.utcnow(),
                 }
@@ -196,12 +198,14 @@ async def node_ws(
     except Exception as e:  # noqa: BLE001
         log.warning("ws error node_id=%s: %s", node_id, e)
     finally:
-        if _connections.get(node_id) is ws:
+        is_current = _connections.get(node_id) is ws
+        if is_current:
             _connections.pop(node_id, None)
             _write_locks.pop(node_id, None)
         _metrics.pop(node_id, None)
         agent_rpc.fail_all_for_node(node_id, reason="agent ws 断开")
-        _mark_status(node_id, online=False)
+        if is_current:
+            _mark_status(node_id, online=False)
 
 
 async def send_cmd(node_id: int, action: str) -> tuple[bool, str]:
