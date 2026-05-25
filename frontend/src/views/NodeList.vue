@@ -136,6 +136,17 @@
 
         <!-- 实时探针 -->
         <div v-if="metrics[row.id]" class="probe">
+          <div v-if="metrics[row.id]?.tcp_conn !== undefined || metrics[row.id]?.udp_conn !== undefined" class="probe-row probe-conn">
+            <div class="conn-item">
+              <span class="conn-label">TCP</span>
+              <span class="conn-val">{{ metrics[row.id].tcp_conn ?? 0 }}</span>
+            </div>
+            <div class="speed-divider" />
+            <div class="conn-item">
+              <span class="conn-label">UDP</span>
+              <span class="conn-val">{{ metrics[row.id].udp_conn ?? 0 }}</span>
+            </div>
+          </div>
           <div class="probe-row probe-speed">
             <div class="speed-item down">
               <el-icon><Bottom /></el-icon>
@@ -184,17 +195,6 @@
                 <div class="bar-track"><div class="bar-fill" :class="loadLevel(diskPct(row.id))" :style="{ width: diskPct(row.id) + '%' }" /></div>
               </div>
             </el-tooltip>
-          </div>
-          <div v-if="metrics[row.id]?.tcp_conn !== undefined || metrics[row.id]?.udp_conn !== undefined" class="probe-row probe-conn">
-            <div class="conn-item">
-              <span class="conn-label">TCP</span>
-              <span class="conn-val">{{ metrics[row.id].tcp_conn ?? 0 }}</span>
-            </div>
-            <div class="speed-divider" />
-            <div class="conn-item">
-              <span class="conn-label">UDP</span>
-              <span class="conn-val">{{ metrics[row.id].udp_conn ?? 0 }}</span>
-            </div>
           </div>
           <div class="probe-row probe-total">
             <div class="total-item down">
