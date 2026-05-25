@@ -1262,12 +1262,13 @@ onBeforeUnmount(() => {
 /* ─── 国家筛选 tabs ─── */
 .country-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px;
-  row-gap: 6px;
   margin: -8px 0 14px;
   padding: 2px 0;
   align-items: center;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 .country-tab {
   appearance: none;
@@ -1282,6 +1283,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   font-family: inherit;
+  flex-shrink: 0;
   transition: border-color .15s, background .15s;
 }
 .country-tab:hover { border-color: #d1d5db; }
