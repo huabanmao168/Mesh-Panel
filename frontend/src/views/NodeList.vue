@@ -39,6 +39,39 @@
       </button>
     </div>
 
+    <!-- 国家筛选 tabs -->
+    <div class="country-tabs">
+      <button
+        class="country-tab"
+        :class="{ active: countryFilter === 'all' }"
+        @click="countryFilter = 'all'"
+      >
+        全部
+        <span class="country-tab-count">{{ filteredByKind.length }}</span>
+      </button>
+      <button
+        v-for="c in countryStats"
+        :key="c.cc"
+        class="country-tab"
+        :class="{ active: countryFilter === c.cc }"
+        @click="countryFilter = c.cc"
+      >
+        <span class="flag-emoji">{{ c.emoji }}</span>
+        <span class="country-name">{{ c.name }}</span>
+        <span class="country-tab-count">{{ c.count }}</span>
+      </button>
+      <button
+        v-if="unclassifiedCount > 0"
+        class="country-tab"
+        :class="{ active: countryFilter === '__none__' }"
+        @click="countryFilter = '__none__'"
+      >
+        <span class="flag-emoji">🌐</span>
+        <span class="country-name">未分类</span>
+        <span class="country-tab-count">{{ unclassifiedCount }}</span>
+      </button>
+    </div>
+
     <!-- 空状态 -->
     <el-empty
       v-if="!loading && filteredNodes.length === 0"
@@ -357,7 +390,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh, Monitor, Clock,
@@ -373,7 +406,15 @@ import NodeMenu from './NodeMenu.vue'
 const ssDrawerRef = ref(null)
 const sogaDrawerRef = ref(null)
 const nodes = ref([])
-const kindFilter = ref('all')   // all | landing | soga
+const kindFilter = ref(localStorage.getItem('mesh:kindFilter') || 'all')   // all | landing | soga
+const countryFilter = ref(localStorage.getItem('mesh:countryFilter') || 'all') // 'all' | <cc> | '__none__'
+
+watch(kindFilter, (v) => {
+  try { localStorage.setItem('mesh:kindFilter', v) } catch (e) {}
+})
+watch(countryFilter, (v) => {
+  try { localStorage.setItem('mesh:countryFilter', v) } catch (e) {}
+})
 
 const metrics = ref({})  // node_id -> { rx_bps, tx_bps, cpu_pct, mem_used, mem_total, uptime_sec, iface }
 const loading = ref(false)
@@ -391,9 +432,54 @@ const logText = ref('')
 const winW = ref(window.innerWidth)
 const drawerSize = computed(() => winW.value < 720 ? '92%' : '560px')
 
-const filteredNodes = computed(() => {
+const filteredByKind = computed(() => {
   if (kindFilter.value === 'all') return nodes.value
   return nodes.value.filter(n => (n.kind || 'landing') === kindFilter.value)
+})
+
+const filteredNodes = computed(() => {
+  let list = filteredByKind.value
+  if (countryFilter.value === 'all') return list
+  if (countryFilter.value === '__none__') return list.filter(n => !n.country)
+  return list.filter(n => (n.country || '').toLowerCase() === countryFilter.value)
+})
+
+const COUNTRY_NAMES = {hk:'香港',tw:'台湾',jp:'日本',kr:'韩国',sg:'新加坡',my:'马来西亚',th:'泰国',vn:'越南',ph:'菲律宾',id:'印度尼西亚',in:'印度',ae:'阿联酋',sa:'沙特',tr:'土耳其',il:'以色列',us:'美国',ca:'加拿大',mx:'墨西哥',br:'巴西',ar:'阿根廷',gb:'英国',de:'德国',fr:'法国',nl:'荷兰',it:'意大利',es:'西班牙',se:'瑞典',no:'挪威',fi:'芬兰',pl:'波兰',ch:'瑞士',ru:'俄罗斯',au:'澳大利亚',nz:'新西兰',za:'南非',eg:'埃及'}
+function flagEmoji(cc){if(!cc||cc.length!==2)return '🌐'; return String.fromCodePoint(...[...cc.toUpperCase()].map(c=>0x1f1e6+c.charCodeAt(0)-65))}
+
+const countryStats = computed(() => {
+  const map = new Map()
+  for (const n of filteredByKind.value) {
+    const cc = (n.country || '').toLowerCase()
+    if (!cc) continue
+    map.set(cc, (map.get(cc) || 0) + 1)
+  }
+  const arr = []
+  for (const [cc, count] of map.entries()) {
+    arr.push({
+      cc,
+      count,
+      emoji: flagEmoji(cc),
+      name: COUNTRY_NAMES[cc] || cc.toUpperCase(),
+    })
+  }
+  arr.sort((a, b) => b.count - a.count || a.cc.localeCompare(b.cc))
+  return arr
+})
+
+const unclassifiedCount = computed(() =>
+  filteredByKind.value.filter(n => !n.country).length
+)
+
+// 切换 kindFilter 时,如果当前 country 在新 kind 下数量为 0,自动回退
+watch(kindFilter, () => {
+  if (countryFilter.value === 'all') return
+  if (countryFilter.value === '__none__') {
+    if (unclassifiedCount.value === 0) countryFilter.value = 'all'
+    return
+  }
+  const exists = countryStats.value.some(c => c.cc === countryFilter.value)
+  if (!exists) countryFilter.value = 'all'
 })
 
 const kindTabs = computed(() => {
@@ -1173,6 +1259,55 @@ onBeforeUnmount(() => {
 .kind-tab.active .kind-tab-count {
   background: #eef2ff;
   color: #6366f1;
+}
+
+/* ─── 国家筛选 tabs ─── */
+.country-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin: -8px 0 14px;
+  padding: 2px 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  align-items: center;
+}
+.country-tabs::-webkit-scrollbar { height: 6px; }
+.country-tabs::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+.country-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 9px;
+  font-size: 12px;
+  color: #1f2937;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: border-color .15s, background .15s;
+}
+.country-tab:hover { border-color: #d1d5db; }
+.country-tab.active {
+  border-color: #1f2937;
+  background: #fff;
+}
+.country-tab .flag-emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+.country-tab .country-name {
+  color: #1f2937;
+}
+.country-tab-count {
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* ─── kind 徽章(卡片左上角) ─── */
