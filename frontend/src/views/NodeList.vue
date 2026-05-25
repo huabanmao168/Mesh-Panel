@@ -56,9 +56,24 @@
       <el-button v-if="nodes.length === 0" type="primary" @click="openCreate">添加第一个节点</el-button>
     </el-empty>
 
-    <!-- 节点列表 (卡片 / 紧凑) -->
+    <!-- 紧凑视图表头 (sticky) -->
+    <div v-if="viewMode==='compact' && filteredNodes.length" class="rc-thead">
+      <div class="rc-th rc-c-drag"></div>
+      <div class="rc-th rc-c-name">节点</div>
+      <div class="rc-th rc-c-kind">类型</div>
+      <div class="rc-th rc-c-num">CPU</div>
+      <div class="rc-th rc-c-num">内存</div>
+      <div class="rc-th rc-c-num">硬盘</div>
+      <div class="rc-th rc-c-num">TCP</div>
+      <div class="rc-th rc-c-num">UDP</div>
+      <div class="rc-th rc-c-num">↑ 速率</div>
+      <div class="rc-th rc-c-num">↓ 速率</div>
+      <div class="rc-th rc-c-num">↑ 累计</div>
+      <div class="rc-th rc-c-num">↓ 累计</div>
+      <div class="rc-th rc-c-more"></div>
+    </div>
+
     <draggable
-      v-else
       :list="filteredNodes"
       class="grid"
       :class="`grid-${viewMode}`"
@@ -232,63 +247,73 @@
           >{{ row.deploy_status === 'failed' ? '重试部署' : '部署' }}</el-button>
         </div>
       </div>
-      <!-- 紧凑视图 -->
-      <div v-else class="row-compact" :class="{ 'rc-online': row.agent_status === 'online', 'rc-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
-        <span class="drag-handle rc-drag" :class="{ disabled: kindFilter !== 'all' }" :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'">⠿</span>
-        <span class="rc-dot" :class="row.agent_status === 'online' ? 'on' : 'off'" />
-        <img v-if="row.country" class="flag rc-flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
-        <div class="rc-name-wrap">
-          <div class="rc-name">
-            <span class="kind-chip" :class="`kind-${row.kind || 'landing'}`">{{ kindLabel(row.kind) }}</span>
-            <span class="rc-name-text" :title="row.name">{{ row.name }}</span>
-          </div>
-          <div v-if="metrics[row.id]?.os_pretty || row.host" class="rc-sub">
-            <span v-if="metrics[row.id]?.os_pretty" class="rc-os">{{ metrics[row.id].os_pretty }}</span>
-            <span v-if="row.host" class="rc-host">{{ row.host }}</span>
+      <!-- 紧凑视图 (表格行) -->
+      <div v-else class="rc-row" :class="{ 'rc-online': row.agent_status === 'online', 'rc-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
+        <!-- 1. 拖柄 + 状态点 -->
+        <div class="rc-cell rc-c-drag">
+          <span class="drag-handle rc-drag" :class="{ disabled: kindFilter !== 'all' }" :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'">⠿</span>
+          <span class="rc-dot" :class="row.agent_status === 'online' ? 'on' : 'off'" />
+        </div>
+        <!-- 2. 名称区 -->
+        <div class="rc-cell rc-c-name">
+          <img v-if="row.country" class="flag rc-flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
+          <div class="rc-name-wrap">
+            <div class="rc-name-text" :title="row.name">{{ row.name }}</div>
+            <div v-if="row.host || metrics[row.id]?.os_pretty" class="rc-sub">
+              <span v-if="row.host" class="rc-host">{{ row.host }}</span>
+              <span v-if="metrics[row.id]?.os_pretty" class="rc-os">{{ metrics[row.id].os_pretty }}</span>
+            </div>
           </div>
         </div>
-
-        <div class="rc-metrics" v-if="metrics[row.id]">
-          <div class="rc-m">
-            <div class="rc-m-label">CPU</div>
-            <div class="rc-m-val" :class="loadLevel(metrics[row.id].cpu_pct)">{{ metrics[row.id].cpu_pct.toFixed(1) }}%</div>
-            <div class="rc-bar"><span :class="loadLevel(metrics[row.id].cpu_pct)" :style="{ width: Math.min(metrics[row.id].cpu_pct, 100) + '%' }" /></div>
-          </div>
-          <div class="rc-m">
-            <div class="rc-m-label">内存</div>
-            <div class="rc-m-val" :class="loadLevel(memPct(row.id))">{{ memPct(row.id) }}%</div>
-            <div class="rc-bar"><span :class="loadLevel(memPct(row.id))" :style="{ width: Math.min(memPct(row.id), 100) + '%' }" /></div>
-          </div>
-          <div class="rc-m" v-if="metrics[row.id].disk_total">
-            <div class="rc-m-label">存储</div>
-            <div class="rc-m-val" :class="loadLevel(diskPct(row.id))">{{ diskPct(row.id) }}%</div>
-            <div class="rc-bar"><span :class="loadLevel(diskPct(row.id))" :style="{ width: Math.min(diskPct(row.id), 100) + '%' }" /></div>
-          </div>
-          <div class="rc-m rc-m-empty" v-else aria-hidden="true"></div>
-          <div class="rc-m">
-            <div class="rc-m-label">上传</div>
-            <div class="rc-m-val rc-up">{{ fmtBps(metrics[row.id].tx_bps) }}</div>
-          </div>
-          <div class="rc-m">
-            <div class="rc-m-label">下载</div>
-            <div class="rc-m-val rc-down">{{ fmtBps(metrics[row.id].rx_bps) }}</div>
-          </div>
+        <!-- 3. 类型 -->
+        <div class="rc-cell rc-c-kind rc-kind-plain">{{ kindLabel(row.kind) }}</div>
+        <!-- 4-6. CPU / 内存 / 硬盘 -->
+        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id] ? loadLevel(metrics[row.id].cpu_pct) : ''">
+          <template v-if="metrics[row.id]">{{ metrics[row.id].cpu_pct.toFixed(1) }}%</template><template v-else>-</template>
         </div>
-        <div v-else-if="row.agent_status === 'online'" class="rc-metrics-empty">
-          <el-icon class="loading-icon"><Loading /></el-icon> 正在采样...
+        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id] ? loadLevel(memPct(row.id)) : ''">
+          <template v-if="metrics[row.id]">{{ memPct(row.id) }}%</template><template v-else>-</template>
         </div>
-        <div v-else class="rc-metrics-empty muted">无数据</div>
-
-        <NodeMenu
-          :row="row"
-          btn-class="rc-more"
-          @deploy="deployNode"
-          @ss="openSSConfig"
-          @detail="openDetail"
-          @edit="openEdit"
-          @uninstall="uninstallNode"
-          @remove="removeNode"
-        />
+        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id]?.disk_total ? loadLevel(diskPct(row.id)) : ''">
+          <template v-if="metrics[row.id]?.disk_total">{{ diskPct(row.id) }}%</template><template v-else>-</template>
+        </div>
+        <!-- 7. TCP -->
+        <div class="rc-cell rc-c-num rc-int">
+          <template v-if="metrics[row.id]?.tcp_conn !== undefined && metrics[row.id]?.tcp_conn !== null">{{ metrics[row.id].tcp_conn.toLocaleString() }}</template><template v-else>-</template>
+        </div>
+        <!-- 8. UDP -->
+        <div class="rc-cell rc-c-num rc-int">
+          <template v-if="metrics[row.id]?.udp_conn !== undefined && metrics[row.id]?.udp_conn !== null">{{ metrics[row.id].udp_conn.toLocaleString() }}</template><template v-else>-</template>
+        </div>
+        <!-- 9. 上传速率 -->
+        <div class="rc-cell rc-c-num rc-rate">
+          <template v-if="metrics[row.id]">{{ fmtBps(metrics[row.id].tx_bps) }}</template><template v-else>-</template>
+        </div>
+        <!-- 10. 下载速率 -->
+        <div class="rc-cell rc-c-num rc-rate">
+          <template v-if="metrics[row.id]">{{ fmtBps(metrics[row.id].rx_bps) }}</template><template v-else>-</template>
+        </div>
+        <!-- 11. 上传累计 -->
+        <div class="rc-cell rc-c-num rc-total">
+          <template v-if="metrics[row.id]?.tx_total !== undefined">{{ fmtBytes(metrics[row.id].tx_total) }}</template><template v-else>-</template>
+        </div>
+        <!-- 12. 下载累计 -->
+        <div class="rc-cell rc-c-num rc-total">
+          <template v-if="metrics[row.id]?.rx_total !== undefined">{{ fmtBytes(metrics[row.id].rx_total) }}</template><template v-else>-</template>
+        </div>
+        <!-- 13. 菜单 -->
+        <div class="rc-cell rc-c-more">
+          <NodeMenu
+            :row="row"
+            btn-class="rc-more"
+            @deploy="deployNode"
+            @ss="openSSConfig"
+            @detail="openDetail"
+            @edit="openEdit"
+            @uninstall="uninstallNode"
+            @remove="removeNode"
+          />
+        </div>
       </div>
       </div>
       </template>
@@ -902,7 +927,7 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 .grid-card { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.grid-compact { grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 10px; }
+.grid-compact { display: flex; flex-direction: column; gap: 0; }
 .node-item { min-width: 0; }
 .card {
   background: #fff;
@@ -1001,41 +1026,92 @@ onBeforeUnmount(() => {
 .card-quick { display: flex; gap: 6px; }
 .card-quick .quick-btn { flex: 1; }
 
-/* ===== 紧凑视图 ===== */
-.row-compact {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 12px;
+/* ===== 紧凑视图 (表格化) ===== */
+:root, .grid-compact {
+  --rc-grid: 36px minmax(220px, 1fr) 56px 64px 64px 64px 70px 70px 84px 84px 84px 84px 36px;
+}
+
+.rc-thead {
+  position: sticky; top: 0; z-index: 5;
   display: grid;
-  grid-template-columns: auto auto auto minmax(120px, 1fr) max-content auto;
+  grid-template-columns: var(--rc-grid);
   align-items: center;
-  gap: 10px;
-  transition: all 0.15s;
-  position: relative;
+  height: 32px;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 11px; color: #6b7280;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+.rc-th { padding: 0 8px; }
+.rc-th.rc-c-num { text-align: right; }
+.rc-th.rc-c-name { text-align: left; padding-left: 4px; }
+.rc-th.rc-c-kind { text-align: center; }
+
+.rc-row {
+  display: grid;
+  grid-template-columns: var(--rc-grid);
+  align-items: center;
+  min-height: 36px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+  transition: background 0.12s;
   min-width: 0;
 }
-.row-compact:hover { border-color: #d4d8de; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.row-compact.rc-online { border-left: 3px solid #22c55e; padding-left: 10px; }
-.row-compact.rc-offline { border-left: 3px solid #ef4444; padding-left: 10px; opacity: 0.78; }
+.rc-row:hover { background: #f9fafb; }
+.rc-row.rc-offline { background: rgba(239, 68, 68, 0.04); }
+.rc-row.rc-offline:hover { background: rgba(239, 68, 68, 0.07); }
+
+.rc-cell {
+  padding: 0 8px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: #1f2937;
+}
+.rc-cell.rc-c-num {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+}
+.rc-cell.rc-c-drag { justify-content: center; gap: 4px; padding: 0 4px; }
+.rc-cell.rc-c-more { justify-content: center; padding: 0 2px; }
+.rc-cell.rc-c-name { padding-left: 4px; gap: 8px; }
+.rc-cell.rc-c-kind {
+  justify-content: center;
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+/* 阈值色 */
+.rc-pct.lv-warn   { color: #f59e0b; }
+.rc-pct.lv-danger { color: #ef4444; }
 
 .rc-drag {
   color: #cbd5e1; cursor: grab; user-select: none;
-  font-size: 14px; padding: 2px 4px;
+  font-size: 13px; line-height: 1;
 }
 .rc-drag.disabled { color: #e5e7eb; cursor: not-allowed; }
 .rc-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 6px; height: 6px; border-radius: 50%;
   background: #d1d5db; flex: 0 0 auto;
 }
-.rc-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.15); }
+.rc-dot.on { background: #22c55e; }
 .rc-dot.off { background: #ef4444; }
 
-.rc-flag { width: 22px; height: 16px; object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,0.06); flex: 0 0 auto; }
+.rc-flag {
+  width: 20px; height: 14px; object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+  flex: 0 0 auto;
+}
 
-.rc-name-wrap { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.rc-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.rc-name .kind-chip { flex: 0 0 auto; }
+.rc-name-wrap { min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
 .rc-name-text {
   font-weight: 600; color: #1f2937; font-size: 13px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1044,83 +1120,13 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: 6px; min-width: 0;
   font-size: 11px; color: #9ca3af;
 }
-.rc-sub .rc-os {
-  flex: 0 0 auto;
-  padding: 0 5px;
-  background: rgba(99,102,241,0.08); color: #6366f1;
-  border-radius: 3px;
-  font-weight: 600; font-size: 10px;
-}
 .rc-sub .rc-host {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-
-.rc-metrics {
-  display: grid;
-  grid-template-columns: repeat(5, 72px);
-  gap: 0 14px;
-  align-items: start;
-  min-width: 0;
-}
-.rc-metrics .rc-m {
-  min-width: 0; width: 72px;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-}
-.rc-m-empty { visibility: hidden; }
-.rc-m-label {
-  font-size: 11px; color: #9ca3af; letter-spacing: 0.02em; line-height: 1;
-}
-.rc-m-val {
-  font-size: 14px; font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: #16a34a;
-  white-space: nowrap;
-  line-height: 1.1;
-}
-.rc-m-val.lv-warn   { color: #d97706; }
-.rc-m-val.lv-danger { color: #dc2626; }
-.rc-bar {
-  width: 64px; height: 3px;
-  background: #e5e7eb;
-  border-radius: 2px;
-  overflow: hidden;
-  margin-top: 1px;
-}
-.rc-bar > span {
-  display: block; height: 100%;
-  background: #16a34a;
-  border-radius: 2px;
-  transition: width 0.3s ease;
-}
-.rc-bar > span.lv-warn   { background: #d97706; }
-.rc-bar > span.lv-danger { background: #dc2626; }
-
-.rc-metrics-empty {
-  font-size: 12px; color: #9ca3af;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.rc-metrics-empty.muted { opacity: 0.6; }
+.rc-sub .rc-os { flex: 0 0 auto; opacity: 0.8; }
 
 .rc-more { padding: 4px 6px; }
-
-/* 窄屏自适应:小于 1100px,堆叠成两行 */
-@media (max-width: 1100px) {
-  .row-compact {
-    grid-template-columns: auto auto auto 1fr auto;
-    grid-template-areas:
-      "drag dot flag name more"
-      "metrics metrics metrics metrics metrics";
-    row-gap: 8px;
-  }
-  .rc-drag { grid-area: drag; }
-  .rc-dot { grid-area: dot; }
-  .rc-flag { grid-area: flag; }
-  .rc-name-wrap { grid-area: name; }
-  .rc-metrics, .rc-metrics-empty { grid-area: metrics; }
-  .rc-more { grid-area: more; }
-}
 
 /* 状态点 */
 .dot {
