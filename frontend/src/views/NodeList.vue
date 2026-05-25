@@ -56,7 +56,7 @@
         :class="{ active: countryFilter === c.cc }"
         @click="countryFilter = c.cc"
       >
-        <span class="flag-emoji">{{ c.emoji }}</span>
+        <img class="flag-img" :src="`https://flagcdn.com/48x36/${c.cc}.png`" :alt="c.cc" loading="lazy" />
         <span class="country-name">{{ c.name }}</span>
         <span class="country-tab-count">{{ c.count }}</span>
       </button>
@@ -445,7 +445,6 @@ const filteredNodes = computed(() => {
 })
 
 const COUNTRY_NAMES = {hk:'香港',tw:'台湾',jp:'日本',kr:'韩国',sg:'新加坡',my:'马来西亚',th:'泰国',vn:'越南',ph:'菲律宾',id:'印度尼西亚',in:'印度',ae:'阿联酋',sa:'沙特',tr:'土耳其',il:'以色列',us:'美国',ca:'加拿大',mx:'墨西哥',br:'巴西',ar:'阿根廷',gb:'英国',de:'德国',fr:'法国',nl:'荷兰',it:'意大利',es:'西班牙',se:'瑞典',no:'挪威',fi:'芬兰',pl:'波兰',ch:'瑞士',ru:'俄罗斯',au:'澳大利亚',nz:'新西兰',za:'南非',eg:'埃及'}
-function flagEmoji(cc){if(!cc||cc.length!==2)return '🌐'; return String.fromCodePoint(...[...cc.toUpperCase()].map(c=>0x1f1e6+c.charCodeAt(0)-65))}
 
 const countryStats = computed(() => {
   const map = new Map()
@@ -459,7 +458,6 @@ const countryStats = computed(() => {
     arr.push({
       cc,
       count,
-      emoji: flagEmoji(cc),
       name: COUNTRY_NAMES[cc] || cc.toUpperCase(),
     })
   }
@@ -1264,16 +1262,13 @@ onBeforeUnmount(() => {
 /* ─── 国家筛选 tabs ─── */
 .country-tabs {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 2px;
+  row-gap: 6px;
   margin: -8px 0 14px;
   padding: 2px 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
   align-items: center;
 }
-.country-tabs::-webkit-scrollbar { height: 6px; }
-.country-tabs::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 .country-tab {
   appearance: none;
   background: transparent;
@@ -1286,8 +1281,6 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  white-space: nowrap;
-  flex-shrink: 0;
   font-family: inherit;
   transition: border-color .15s, background .15s;
 }
@@ -1299,6 +1292,14 @@ onBeforeUnmount(() => {
 .country-tab .flag-emoji {
   font-size: 13px;
   line-height: 1;
+}
+.flag-img {
+  width: 18px;
+  height: 13.5px;
+  object-fit: cover;
+  border-radius: 2px;
+  vertical-align: middle;
+  display: inline-block;
 }
 .country-tab .country-name {
   color: #1f2937;
