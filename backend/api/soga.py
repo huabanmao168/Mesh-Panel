@@ -565,8 +565,8 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
          "outs":[{"landing_node_id": int|null}]}
     ]}
 
-    流程: 校验 → 全量重写 DB(删旧建新) → 渲染 TOML → SSH 推送。
-    任一步失败就抛 400/500,DB 已写入的暂不回滚(SQLite 事务 commit 后无法 undo, SSH 失败用户重推即可)。
+    流程: 校验 → 渲染 TOML → SSH 推送(file 模式) → 全量重写 DB(删旧建新) → commit。
+    顺序反转后:推送失败时 DB 不动,面板显示和节点状态保持一致。
     """
     from deploy.soga_push import render_routes_toml, push_routes, SogaPushError
 
@@ -615,7 +615,32 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
             if landings[lid].kind != "landing":
                 raise HTTPException(400, f"路由 #{idx+1} 关联节点必须是落地机")
 
-    # 全量重写 DB
+    # ─── 关键顺序: 先渲染 + 推送,成功后再改 DB ───
+    enable_probe = bool(getattr(node, "soga_system_probe", True))
+    probe_rules = _node_probe_rules(node)
+    try:
+        toml_text = render_routes_toml(
+            routes_in, landings,
+            enable_system_probe=enable_probe,
+            system_probe_rules=probe_rules,
+        )
+    except SogaPushError as e:
+        raise HTTPException(500, f"渲染失败: {e}")
+    except Exception as e:
+        raise HTTPException(500, f"渲染异常: {type(e).__name__}: {e}")
+
+    is_http_mode = (inst.route_source or "file") == "http"
+
+    # file 模式: 先 SSH 推 routes.toml,失败立即 raise(DB 没动)
+    if not is_http_mode:
+        try:
+            push_routes(node, inst.folder_name, toml_text)
+        except SogaPushError as e:
+            raise HTTPException(502, f"SSH 推送失败: {e}")
+        except Exception as e:
+            raise HTTPException(502, f"SSH 异常: {type(e).__name__}: {e}")
+
+    # 推送成功(或 HTTP 模式跳过推送),开始写 DB
     old_routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == instance_id)).all()
     for r in old_routes:
         session.exec(text(f"DELETE FROM soga_route_outs WHERE route_id={r.id}"))
@@ -642,37 +667,13 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
             ))
     session.commit()
 
-    # 渲染 + 推送 (按节点的系统探活开关决定是否注入)
-    enable_probe = bool(getattr(node, "soga_system_probe", True))
-    probe_rules = _node_probe_rules(node)
-    try:
-        toml_text = render_routes_toml(
-            routes_in, landings,
-            enable_system_probe=enable_probe,
-            system_probe_rules=probe_rules,
-        )
-    except SogaPushError as e:
-        raise HTTPException(500, f"渲染失败: {e}")
-    except Exception as e:
-        raise HTTPException(500, f"渲染异常: {type(e).__name__}: {e}")
-
-    # HTTP 模式: 只写 DB,soga 自己 1 分钟轮询拉新 toml
-    if (inst.route_source or "file") == "http":
+    if is_http_mode:
         return {
             "ok": True,
             "pushed": False,
             "mode": "http",
             "bytes": len(toml_text.encode("utf-8")),
         }
-
-    # file 模式: SSH 推 routes.toml
-    try:
-        push_routes(node, inst.folder_name, toml_text)
-    except SogaPushError as e:
-        raise HTTPException(502, f"SSH 推送失败: {e}")
-    except Exception as e:
-        raise HTTPException(502, f"SSH 异常: {type(e).__name__}: {e}")
-
     return {"ok": True, "pushed": True, "mode": "file", "bytes": len(toml_text.encode("utf-8"))}
 
 

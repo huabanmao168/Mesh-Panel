@@ -1,6 +1,6 @@
 """SQLModel engine + session 工厂。"""
 from sqlmodel import SQLModel, create_engine, Session
-from sqlalchemy import text
+from sqlalchemy import text, event
 from config import DATABASE_URL
 
 # SQLite 多线程:FastAPI 的 threadpool 会跨线程用 session
@@ -9,6 +9,18 @@ engine = create_engine(
     echo=False,
     connect_args={"check_same_thread": False},
 )
+
+
+# SQLite 默认 foreign_keys=OFF,SQLModel 的 foreign_key= 声明形同虚设
+# 每次新连接打开都强制开启 + WAL 模式提升并发写性能 + busy_timeout 避免 database is locked
+@event.listens_for(engine, "connect")
+def _sqlite_pragma(dbapi_conn, _):
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA foreign_keys=ON")
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    cur.execute("PRAGMA busy_timeout=5000")
+    cur.close()
 
 
 def _ensure_column(conn, table: str, column: str, ddl: str) -> None:

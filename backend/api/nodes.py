@@ -8,11 +8,56 @@ from sqlmodel import Session, select
 
 from database import get_session
 from models.node import Node, NodeCreate, NodeUpdate, NodeRead
+from models.soga import SogaInstance, SogaRoute, SogaRouteOut
 from ssh.client import test_connection
 from deploy.installer import deploy_node, derive_schema, push_agent_env
 from deploy.uninstaller import uninstall_node
 from utils.geoip import lookup_country
 from api.settings import get_setting
+
+
+def _cascade_delete_node_soga(session: Session, node_id: int) -> dict:
+    """删节点前清干净 soga 关联数据,避免 DB 孤儿。
+
+    清理范围:
+    - 该节点作为入口机时: soga_instances + 下属 soga_routes + soga_route_outs
+    - 该节点作为落地机时: 其它入口机的 soga_route_outs.landing_node_id == node_id
+      (这种情况会让其它入口机的路由变残,只能清掉等用户重配)
+
+    返回清理统计供日志/审计用。
+    """
+    # 1. 作为入口机: 删 instances 及子表
+    insts = session.exec(select(SogaInstance).where(SogaInstance.node_id == node_id)).all()
+    inst_cnt = len(insts)
+    route_cnt = 0
+    out_cnt = 0
+    for inst in insts:
+        routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == inst.id)).all()
+        for r in routes:
+            outs = session.exec(select(SogaRouteOut).where(SogaRouteOut.route_id == r.id)).all()
+            for o in outs:
+                session.delete(o)
+                out_cnt += 1
+            session.delete(r)
+            route_cnt += 1
+        session.delete(inst)
+
+    # 2. 作为落地机: 清其它入口机引用了它的 outs
+    dangling_outs = session.exec(
+        select(SogaRouteOut).where(SogaRouteOut.landing_node_id == node_id)
+    ).all()
+    dangling_cnt = 0
+    for o in dangling_outs:
+        session.delete(o)
+        dangling_cnt += 1
+
+    session.flush()
+    return {
+        "instances": inst_cnt,
+        "routes": route_cnt,
+        "outs": out_cnt,
+        "dangling_landing_outs": dangling_cnt,
+    }
 from ws.agents import send_cmd, disconnect_node, get_all_metrics, _connections, _write_locks
 import json
 import asyncio
@@ -137,9 +182,10 @@ async def delete_node(node_id: int, session: Session = Depends(get_session)):
     if not node:
         raise HTTPException(404, "节点不存在")
     await disconnect_node(node_id)
+    cascade = _cascade_delete_node_soga(session, node_id)
     session.delete(node)
     session.commit()
-    return _ok({"id": node_id})
+    return _ok({"id": node_id, "cascade": cascade})
 
 
 @router.post("/{node_id}/uninstall")
@@ -164,8 +210,9 @@ async def uninstall(
         raise HTTPException(404, "节点不存在")
 
     if force and delete_after:
-        # 不连远端，直接踢 WS + 删 DB
+        # 不连远端，直接踢 WS + 清 soga 关联 + 删 DB
         await disconnect_node(node_id)
+        cascade = _cascade_delete_node_soga(session, node_id)
         session.delete(node)
         session.commit()
         return _ok({
@@ -173,6 +220,7 @@ async def uninstall(
             "forced": True,
             "log": "force mode: 跳过远端清理，仅从面板删除节点",
             "deleted": True,
+            "cascade": cascade,
         })
 
     # 正常路径：跑远端卸载
@@ -183,12 +231,14 @@ async def uninstall(
 
     if result.ok:
         if delete_after:
+            cascade = _cascade_delete_node_soga(session, node_id)
             session.delete(node)
             session.commit()
             return _ok({
                 "success": True,
                 "log": result.log,
                 "deleted": True,
+                "cascade": cascade,
             })
         # 保留记录：重置状态
         node.deploy_status = "uninstalled"

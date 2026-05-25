@@ -136,33 +136,9 @@
                   </div>
                   <span class="route-count"><strong>{{ inst.route_count ?? '?' }}</strong> 条用户路由</span>
                   <el-tag v-if="inst.enabled === false" size="small" type="info" effect="plain">已消失</el-tag>
-                  <el-button
-                    v-if="inst.enabled === false"
-                    size="small"
-                    text
-                    class="del-btn"
-                    :loading="deletingId === inst.id"
-                    @click="removeOne(inst)"
-                    title="删除该实例(含路由)"
-                  >
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
                 </div>
-                <el-button
-                  size="small"
-                  plain
-                  :disabled="inst.enabled === false"
-                  @click="openConfEditor(inst.id)"
-                >编辑配置</el-button>
-                <el-button
-                  size="small"
-                  plain
-                  :icon="Promotion"
-                  :loading="pushingId === inst.id"
-                  :disabled="inst.enabled === false || pendingSourceChanged(inst)"
-                  @click="pushOne(inst)"
-                  v-if="(inst.route_source || 'file') === 'file'"
-                >重新推送</el-button>
+
+                <!-- 主操作:配置路由 -->
                 <el-button
                   size="small"
                   type="primary"
@@ -170,13 +146,47 @@
                   :disabled="inst.enabled === false"
                   @click="openRouteEditor(inst.id)"
                 >配置路由</el-button>
-                <el-button
-                  size="small"
-                  plain
-                  :loading="restartingId === inst.id"
-                  :disabled="inst.enabled === false"
-                  @click="restartOne(inst)"
-                >重启实例</el-button>
+
+                <!-- 次要操作收进三点菜单 -->
+                <el-dropdown
+                  trigger="click"
+                  @command="(cmd) => onInstMenu(cmd, inst)"
+                  :disabled="inst.enabled === false && !canDeleteOnly(inst)"
+                >
+                  <el-button size="small" plain class="more-btn" :title="'更多操作'">
+                    <el-icon><MoreFilled /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item
+                        command="edit-conf"
+                        :disabled="inst.enabled === false"
+                      >
+                        <el-icon><Edit /></el-icon>编辑配置
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        command="push"
+                        :disabled="inst.enabled === false || pendingSourceChanged(inst) || (inst.route_source || 'file') !== 'file'"
+                      >
+                        <el-icon><Promotion /></el-icon>重新推送
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        command="restart"
+                        :disabled="inst.enabled === false"
+                      >
+                        <el-icon><Refresh /></el-icon>重启实例
+                      </el-dropdown-item>
+                      <el-dropdown-item
+                        v-if="inst.enabled === false"
+                        command="delete"
+                        divided
+                        class="danger-item"
+                      >
+                        <el-icon><Delete /></el-icon>删除实例
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
 
                 <!-- 路由分发 -->
                 <div class="route-source-block">
@@ -220,7 +230,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Promotion, Edit, Delete } from '@element-plus/icons-vue'
+import { Refresh, Promotion, Edit, Delete, MoreFilled } from '@element-plus/icons-vue'
 import http from '../api.js'
 import { settingsApi } from '../api.js'
 import draggable from 'vuedraggable'
@@ -334,6 +344,18 @@ async function removeOne(inst) {
   } finally {
     deletingId.value = null
   }
+}
+
+// 三点菜单:已消失实例只允许"删除"命中,enabled 实例其它项都可点
+function canDeleteOnly(inst) {
+  return inst.enabled === false
+}
+
+function onInstMenu(cmd, inst) {
+  if (cmd === 'edit-conf') return openConfEditor(inst.id)
+  if (cmd === 'push') return pushOne(inst)
+  if (cmd === 'restart') return restartOne(inst)
+  if (cmd === 'delete') return removeOne(inst)
 }
 
 // ─── 路由分发模式 ───────────────────────────────────────────────────────
@@ -882,6 +904,22 @@ defineExpose({ open })
   color: #9ca3af;
 }
 .del-btn:hover { color: #ef4444; }
+.more-btn {
+  padding: 5px 8px !important;
+  color: #6b7280;
+}
+.more-btn:hover { color: #4f46e5; border-color: #c7d2fe; }
+/* dropdown 内的危险项 - 红字 hover 浅红底 */
+:deep(.el-dropdown-menu__item.danger-item) {
+  color: #ef4444;
+}
+:deep(.el-dropdown-menu__item.danger-item:not(.is-disabled):hover) {
+  background-color: #fef2f2;
+  color: #dc2626;
+}
+:deep(.el-dropdown-menu__item .el-icon) {
+  margin-right: 6px;
+}
 .alias-input { width: 200px; }
 .route-count {
   font-size: 12px;
