@@ -37,14 +37,6 @@
         {{ t.label }}
         <span class="kind-tab-count">{{ t.count }}</span>
       </button>
-      <div class="view-switch" role="group" aria-label="视图切换">
-        <button class="vs-btn" :class="{ active: viewMode==='card' }" @click="setViewMode('card')" title="卡片视图">
-          <el-icon><Grid /></el-icon>
-        </button>
-        <button class="vs-btn" :class="{ active: viewMode==='compact' }" @click="setViewMode('compact')" title="紧凑视图">
-          <el-icon><Menu /></el-icon>
-        </button>
-      </div>
     </div>
 
     <!-- 空状态 -->
@@ -56,25 +48,9 @@
       <el-button v-if="nodes.length === 0" type="primary" @click="openCreate">添加第一个节点</el-button>
     </el-empty>
 
-    <!-- 紧凑视图表头 (sticky) -->
-    <div v-if="viewMode==='compact' && filteredNodes.length" class="rc-thead">
-      <div class="rc-th rc-c-drag"></div>
-      <div class="rc-th rc-c-name">NODE</div>
-      <div class="rc-th rc-c-kind">TYPE</div>
-      <div class="rc-th rc-c-num">CPU</div>
-      <div class="rc-th rc-c-num">MEM</div>
-      <div class="rc-th rc-c-num">DISK</div>
-      <div class="rc-th rc-c-num">TCP</div>
-      <div class="rc-th rc-c-num">UDP</div>
-      <div class="rc-th rc-c-num">↑ BPS</div>
-      <div class="rc-th rc-c-num">↓ BPS</div>
-      <div class="rc-th rc-c-more"></div>
-    </div>
-
     <draggable
       :list="filteredNodes"
-      class="grid"
-      :class="`grid-${viewMode}`"
+      class="grid grid-card"
       item-key="id"
       handle=".drag-handle"
       :animation="180"
@@ -85,7 +61,7 @@
     >
       <template #item="{ element: row }">
       <div class="node-item">
-      <div v-if="viewMode==='card'" class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
+      <div class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
         <div class="card-head">
           <span
             class="drag-handle"
@@ -245,66 +221,6 @@
           >{{ row.deploy_status === 'failed' ? '重试部署' : '部署' }}</el-button>
         </div>
       </div>
-      <!-- 紧凑视图 (表格行) -->
-      <div v-else class="rc-row" :class="{ 'rc-online': row.agent_status === 'online', 'rc-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
-        <!-- 1. 拖柄 -->
-        <div class="rc-cell rc-c-drag">
-          <span class="drag-handle rc-drag" :class="{ disabled: kindFilter !== 'all' }" :title="kindFilter === 'all' ? '拖动排序' : '到「全部」标签拖动排序'">⠿</span>
-        </div>
-        <!-- 2. 名称区 (含状态点 + 国旗) -->
-        <div class="rc-cell rc-c-name">
-          <span class="rc-dot" :class="row.agent_status === 'online' ? 'on' : 'off'" />
-          <img v-if="row.country" class="flag rc-flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
-          <div class="rc-name-wrap">
-            <div class="rc-name-text" :title="row.name">{{ row.name }}</div>
-            <div v-if="row.host || metrics[row.id]?.os_pretty" class="rc-sub">
-              <span v-if="row.host" class="rc-host">{{ row.host }}</span>
-              <span v-if="metrics[row.id]?.os_pretty" class="rc-os">{{ metrics[row.id].os_pretty }}</span>
-            </div>
-          </div>
-        </div>
-        <!-- 3. 类型 -->
-        <div class="rc-cell rc-c-kind">{{ kindLabel(row.kind) }}</div>
-        <!-- 4-6. CPU / 内存 / 硬盘 -->
-        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id] ? loadLevel(metrics[row.id].cpu_pct) : ''">
-          <template v-if="metrics[row.id]">{{ metrics[row.id].cpu_pct.toFixed(0) }}<i class="u">%</i></template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id] ? loadLevel(memPct(row.id)) : ''">
-          <template v-if="metrics[row.id]">{{ memPct(row.id) }}<i class="u">%</i></template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <div class="rc-cell rc-c-num rc-pct" :class="metrics[row.id]?.disk_total ? loadLevel(diskPct(row.id)) : ''">
-          <template v-if="metrics[row.id]?.disk_total">{{ diskPct(row.id) }}<i class="u">%</i></template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <!-- 7. TCP -->
-        <div class="rc-cell rc-c-num rc-int">
-          <template v-if="metrics[row.id]?.tcp_conn !== undefined && metrics[row.id]?.tcp_conn !== null">{{ metrics[row.id].tcp_conn.toLocaleString() }}</template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <!-- 8. UDP -->
-        <div class="rc-cell rc-c-num rc-int">
-          <template v-if="metrics[row.id]?.udp_conn !== undefined && metrics[row.id]?.udp_conn !== null">{{ metrics[row.id].udp_conn.toLocaleString() }}</template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <!-- 9. 上传速率 -->
-        <div class="rc-cell rc-c-num rc-rate">
-          <template v-if="metrics[row.id]">{{ fmtBps(metrics[row.id].tx_bps) }}</template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <!-- 10. 下载速率 -->
-        <div class="rc-cell rc-c-num rc-rate">
-          <template v-if="metrics[row.id]">{{ fmtBps(metrics[row.id].rx_bps) }}</template><template v-else><span class="rc-dash">–</span></template>
-        </div>
-        <!-- 11. 菜单 -->
-        <div class="rc-cell rc-c-more">
-          <NodeMenu
-            :row="row"
-            btn-class="rc-more"
-            @deploy="deployNode"
-            @ss="openSSConfig"
-            @detail="openDetail"
-            @edit="openEdit"
-            @uninstall="uninstallNode"
-            @remove="removeNode"
-          />
-        </div>
-      </div>
       </div>
       </template>
     </draggable>
@@ -446,7 +362,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Refresh, Monitor, Clock,
   CopyDocument,
-  Top, Bottom, Loading, Grid, Menu,
+  Top, Bottom, Loading,
 } from '@element-plus/icons-vue'
 import { nodeApi } from '../api.js'
 import draggable from 'vuedraggable'
@@ -458,12 +374,7 @@ const ssDrawerRef = ref(null)
 const sogaDrawerRef = ref(null)
 const nodes = ref([])
 const kindFilter = ref('all')   // all | landing | soga
-const viewMode = ref('card')    // card | compact
 
-function setViewMode(v) {
-  viewMode.value = v
-  try { localStorage.setItem('mesh:nodeListView', v) } catch {}
-}
 const metrics = ref({})  // node_id -> { rx_bps, tx_bps, cpu_pct, mem_used, mem_total, uptime_sec, iface }
 const loading = ref(false)
 const dialogOpen = ref(false)
@@ -830,11 +741,6 @@ function onResize() { winW.value = window.innerWidth }
 let timer = null
 let metricsTimer = null
 onMounted(() => {
-  // 恢复视图偏好
-  try {
-    const v = localStorage.getItem('mesh:nodeListView')
-    if (v === 'card' || v === 'compact') viewMode.value = v
-  } catch {}
   load()
   loadMetrics()
   // 拉一下面板版本,用于 agent 版本对比着色
@@ -917,7 +823,6 @@ onBeforeUnmount(() => {
   gap: 14px;
 }
 .grid-card { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.grid-compact { display: flex; flex-direction: column; gap: 0; }
 .node-item { min-width: 0; }
 .card {
   background: #fff;
@@ -1015,135 +920,6 @@ onBeforeUnmount(() => {
 .card-foot .muted { color: #d1d5db; }
 .card-quick { display: flex; gap: 6px; }
 .card-quick .quick-btn { flex: 1; }
-
-/* ===== 紧凑视图 (表格化, 高密度冷色) ===== */
-:root, .grid-compact {
-  /* 拖柄 24 | 名称(dot+flag+name) 1fr | 类型 48 | CPU 60 | MEM 60 | DISK 60 | TCP 60 | UDP 60 | ↑BPS 80 | ↓BPS 80 | 菜单 24 */
-  --rc-grid: 24px minmax(220px, 1fr) 48px 60px 60px 60px 60px 60px 80px 80px 24px;
-}
-
-.rc-thead {
-  position: sticky; top: 0; z-index: 5;
-  display: grid;
-  grid-template-columns: var(--rc-grid);
-  align-items: center;
-  height: 26px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-  font-size: 11px; color: #9ca3af;
-  font-weight: 400;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.rc-th { padding: 0 8px; }
-.rc-th.rc-c-num { text-align: right; }
-.rc-th.rc-c-name { text-align: left; padding-left: 4px; }
-.rc-th.rc-c-kind { text-align: center; }
-
-.rc-row {
-  display: grid;
-  grid-template-columns: var(--rc-grid);
-  align-items: center;
-  height: 30px;
-  border-bottom: 1px solid #f3f4f6;
-  background: #fff;
-  transition: background 0.06s ease-out;
-  min-width: 0;
-}
-.rc-row:hover { background: #f9fafb; }
-.rc-row.rc-offline .rc-name-text,
-.rc-row.rc-offline .rc-sub,
-.rc-row.rc-offline .rc-c-num,
-.rc-row.rc-offline .rc-c-kind { opacity: 0.5; }
-
-.rc-cell {
-  padding: 0 8px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  font-size: 13px;
-  color: #1f2937;
-  line-height: 1;
-}
-.rc-cell.rc-c-num {
-  justify-content: flex-end;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: 600;
-  color: #1f2937;
-  white-space: nowrap;
-}
-.rc-cell.rc-c-num .u {
-  font-style: normal; font-weight: 400; font-size: 11px;
-  color: #9ca3af; margin-left: 1px;
-}
-.rc-cell.rc-c-num .rc-dash { color: #d1d5db; font-weight: 400; }
-.rc-cell.rc-c-drag { justify-content: center; padding: 0 4px; }
-.rc-cell.rc-c-more { justify-content: center; padding: 0 2px; }
-.rc-cell.rc-c-name { padding-left: 6px; padding-right: 8px; gap: 6px; }
-.rc-cell.rc-c-kind {
-  justify-content: center;
-  font-size: 11px;
-  color: #9ca3af;
-  font-weight: 400;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
-
-/* 阈值色 — 不加粗,颜色变化即信号 */
-.rc-pct.lv-warn   { color: #d97706; }
-.rc-pct.lv-danger { color: #dc2626; }
-
-.rc-drag {
-  color: #d1d5db; cursor: grab; user-select: none;
-  font-size: 12px; line-height: 1;
-  transition: color 0.06s ease-out;
-}
-.rc-row:hover .rc-drag { color: #6b7280; }
-.rc-drag.disabled { color: #e5e7eb; cursor: not-allowed; }
-.rc-row:hover .rc-drag.disabled { color: #e5e7eb; }
-
-.rc-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #d1d5db; flex: 0 0 auto;
-}
-.rc-dot.on { background: #059669; }
-.rc-dot.off { background: #d1d5db; }
-
-.rc-flag {
-  width: 18px; height: 13px; object-fit: cover;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
-  flex: 0 0 auto;
-}
-
-.rc-name-wrap {
-  min-width: 0; display: flex; align-items: baseline; gap: 6px;
-  line-height: 1;
-  overflow: hidden;
-}
-.rc-name-text {
-  font-weight: 500; color: #111827; font-size: 13px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  flex: 0 1 auto;
-}
-.rc-sub {
-  display: flex; align-items: baseline; gap: 6px; min-width: 0;
-  font-size: 11px; color: #9ca3af;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  flex: 0 1 auto; overflow: hidden;
-}
-.rc-sub .rc-host {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.rc-sub .rc-os {
-  flex: 0 0 auto; opacity: 0.8;
-  font-family: system-ui, -apple-system, sans-serif;
-}
-
-.rc-more { padding: 2px 4px; }
 
 /* 状态点 */
 .dot {
@@ -1363,27 +1139,6 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   align-items: center;
 }
-.kind-tabs .view-switch {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: rgba(255,255,255,0.7);
-  border-radius: 7px;
-}
-.kind-tabs .vs-btn {
-  appearance: none; border: 0; background: transparent;
-  padding: 5px 9px; border-radius: 5px; cursor: pointer;
-  color: #9ca3af; display: inline-flex; align-items: center;
-  transition: all 0.15s;
-}
-.kind-tabs .vs-btn:hover { color: #4b5563; }
-.kind-tabs .vs-btn.active {
-  background: #fff;
-  color: #6366f1;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-}
-.kind-tabs .vs-btn .el-icon { font-size: 15px; }
 .kind-tab {
   appearance: none;
   border: 0;
