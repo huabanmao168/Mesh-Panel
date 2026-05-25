@@ -46,17 +46,28 @@ else
   DL() { wget -q -O - "$1"; }
 fi
 
-LATEST_TAG=$(DL "https://api.github.com/repos/SagerNet/sing-box/releases/latest" \
-  | grep -oE '"tag_name"[^"]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
-  | head -1 \
-  | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
-
-if [ -z "${LATEST_TAG:-}" ]; then
-  echo "无法解析 sing-box 最新版本（GitHub API 不通？）"
-  exit 1
+# 已装过 sing-box 就直接用本地版本,跳过 GitHub API (避免某些 IP 命中 GitHub 403 限流)
+LOCAL_VER=""
+if [ -x /opt/meshPanel/sing-box ]; then
+  LOCAL_VER=$(/opt/meshPanel/sing-box version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
 fi
-VER="${LATEST_TAG#v}"
-echo "    latest = $VER"
+
+if [ -n "$LOCAL_VER" ]; then
+  VER="$LOCAL_VER"
+  echo "    using local = $VER (skip GitHub API)"
+else
+  LATEST_TAG=$(DL "https://api.github.com/repos/SagerNet/sing-box/releases/latest" \
+    | grep -oE '"tag_name"[^"]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+    | head -1 \
+    | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+') || true
+
+  if [ -z "${LATEST_TAG:-}" ]; then
+    echo "无法解析 sing-box 最新版本（GitHub API 不通且本地无安装）"
+    exit 1
+  fi
+  VER="${LATEST_TAG#v}"
+  echo "    latest = $VER"
+fi
 
 # ---------- 3. 准备目录 ----------
 mkdir -p /opt/meshPanel
