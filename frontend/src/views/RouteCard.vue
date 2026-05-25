@@ -15,8 +15,8 @@
 
       <span v-if="route.is_fallback" class="kind-chip kind-fb">兜底</span>
 
-      <!-- 兜底显示备注只读 -->
-      <span v-if="lockedPosition && route.remark" class="head-meta">{{ route.remark }}</span>
+      <!-- 兜底显示备注只读 (不包括默认 "兜底" 字样) -->
+      <span v-if="lockedPosition && route.remark && route.remark !== '兜底'" class="head-meta">{{ route.remark }}</span>
 
       <div class="head-actions" @click.stop>
         <button

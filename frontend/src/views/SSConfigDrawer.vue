@@ -168,14 +168,13 @@
           保存并应用
         </el-button>
       </div>
-    </div>
 
-    <el-dialog v-model="previewVisible" title="sing-box JSON 预览" width="640px">
-      <pre class="preview">{{ previewJson }}</pre>
-      <template #footer>
-        <el-button @click="previewVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+      <el-collapse v-if="previewJson" v-model="previewCollapse" class="preview-collapse">
+        <el-collapse-item title="sing-box JSON 预览" name="preview">
+          <pre class="preview">{{ previewJson }}</pre>
+        </el-collapse-item>
+      </el-collapse>
+    </div>
   </el-drawer>
 </template>
 

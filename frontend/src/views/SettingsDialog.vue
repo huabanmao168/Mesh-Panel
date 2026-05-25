@@ -17,7 +17,6 @@
           placeholder="8000"
           style="width: 110px"
         />
-        <span class="port-hint" v-if="form.panel_port < 1024">&lt; 1024 需 root</span>
       </el-form-item>
 
       <el-form-item label="绑定域名">
@@ -77,7 +76,6 @@
             <el-button @click="useDerived" :disabled="!derivedEndpoint">用推荐值</el-button>
           </template>
         </el-input>
-        <div class="hint" v-if="derivedEndpoint">推荐:<code>{{ derivedEndpoint }}</code></div>
       </el-form-item>
 
       <!-- ===== 分区:Soga 路由分发 ===== -->
@@ -92,7 +90,7 @@
             <el-button @click="usePublicUrlDerived" :disabled="!derivedPublicUrl">用推荐值</el-button>
           </template>
         </el-input>
-        <div class="hint">入口机 soga 用此地址拉 routes.toml。留空 = 禁用 HTTP 分发</div>
+        <div class="hint">留空禁用</div>
       </el-form-item>
     </el-form>
 

@@ -224,7 +224,7 @@ async function save() {
   if (!dirty.value || saving.value) return
   try {
     await ElMessageBox.confirm(
-      '保存后将自动在入口机执行 soga restart 重启该实例。',
+      '保存并重启 soga?',
       '保存配置',
       { confirmButtonText: '保存并重启', cancelButtonText: '取消', type: 'warning' },
     )

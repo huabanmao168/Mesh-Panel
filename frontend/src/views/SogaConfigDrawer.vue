@@ -328,20 +328,6 @@ function applyDisabledHint(inst) {
   if (draft === 'http' && !panelPublicUrl.value) return '请先在系统设置填写面板公网地址'
   return ''
 }
-function buildUrl(inst) {
-  if (!panelPublicUrl.value || !inst.routes_token) return ''
-  return `${panelPublicUrl.value}/api/soga/instances/${inst.id}/routes.toml?token=${inst.routes_token}`
-}
-async function copyUrl(inst) {
-  const u = buildUrl(inst)
-  if (!u) return
-  try {
-    await navigator.clipboard.writeText(u)
-    ElMessage.success('已复制')
-  } catch {
-    ElMessage.error('复制失败,请手工选中')
-  }
-}
 async function applySource(inst) {
   const draft = sourceDraft.value[inst.id]
   if (!draft) return
@@ -482,14 +468,11 @@ async function scan() {
   if (!node.value) return
   scanning.value = true
   try {
-    const sr = await http.post(`/soga/${node.value.id}/scan`)
+    await http.post(`/soga/${node.value.id}/scan`)
     const r = await http.get(`/soga/${node.value.id}/instances`)
     instances.value = r.instances || []
     syncSourceDraft()
     applyProbeFromResp(r)
-    if (sr?.last_scanned_at) {
-      lastScannedAt.value = new Date(sr.last_scanned_at.endsWith('Z') ? sr.last_scanned_at : sr.last_scanned_at + 'Z').getTime()
-    }
     ElMessage.success(`已加载 ${instances.value.length} 个实例`)
   } catch (e) {
     ElMessage.error(e?.response?.data?.detail || '加载失败,请确认 SSH 可连')
@@ -527,7 +510,7 @@ async function saveProbeRules() {
 async function resetProbeRules() {
   try {
     await ElMessageBox.confirm(
-      '恢复后将使用面板内置的 captive portal 默认列表(保存后需手动「重新推送全部」)。',
+      '恢复默认探活规则?',
       '恢复默认',
       { type: 'warning' },
     )
@@ -549,7 +532,7 @@ async function resetProbeRules() {
 async function pushAll() {
   try {
     await ElMessageBox.confirm(
-      `将把当前规则与路由配置推送到 ${instances.value.length} 个实例,确定?`,
+      `推送到 ${instances.value.length} 个实例?`,
       '重新推送',
       { type: 'warning' },
     )
@@ -616,7 +599,7 @@ defineExpose({ open })
   display: flex;
   gap: 8px;
 }
-.entry-actions .el-button { flex: 1; }
+.entry-actions .el-button { flex: 0 0 auto; }
 .section-title {
   font-size: 15px;
   font-weight: 600;

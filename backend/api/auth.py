@@ -142,9 +142,9 @@ def auth_login(payload: LoginPayload, response: Response, session: Session = Dep
     u_stored = _setting_get(session, K_USERNAME)
     h_stored = _setting_get(session, K_PWD_HASH)
     if not u_stored or not h_stored:
-        raise HTTPException(400, "尚未设置管理员")
+        raise HTTPException(401, "凭据错误")
     if (payload.username or "").strip() != u_stored or not _verify_pwd(payload.password or "", h_stored):
-        raise HTTPException(401, "用户名或密码错误")
+        raise HTTPException(401, "凭据错误")
     token = _make_token(u_stored)
     _set_cookie(response, token)
     return {"ok": True, "data": {"username": u_stored}}

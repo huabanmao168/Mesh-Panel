@@ -153,22 +153,68 @@ EOF
 
 # ---------------- 安装 ----------------
 do_install() {
-  if [[ -x "$BINARY_PATH" ]]; then
-    warn "$BINARY_PATH 已存在,如需更新请选[2],如需重装请先选[3]卸载"
-    return
-  fi
   detect_arch
   install_deps
+
+  # ---- 组件级幂等检测 ----
+  local needs_install=0 needs_unit=0 needs_shortcut=0 needs_envdir=0
+  [[ ! -x "$BINARY_PATH" ]] && needs_install=1
+  [[ ! -f "/etc/systemd/system/${SERVICE_NAME}.service" ]] && needs_unit=1
+  [[ ! -x "/usr/local/bin/mesh" ]] && needs_shortcut=1
+  [[ ! -d "${INSTALL_DIR}/data" ]] && needs_envdir=1
 
   log "查询最新 release..."
   LATEST=$(get_latest_tag)
   [[ -n "$LATEST" ]] || die "拉不到 release tag,检查仓库是否已发版"
   ok "最新版本: $LATEST"
 
-  download_binary "$LATEST"
+  local CURRENT="未安装"
+  [[ "$needs_install" -eq 0 ]] && CURRENT=$(current_version)
 
-  write_systemd_unit
-  install_shortcut
+  # 1) 全部就位 + 版本一致 → 直接返回
+  if (( needs_install==0 && needs_unit==0 && needs_shortcut==0 && needs_envdir==0 )) \
+     && [[ "$CURRENT" == "$LATEST" ]]; then
+    ok "已完整安装 ${CURRENT},无需操作 (更新请选[2],重装请先[3]卸载)"
+    return
+  fi
+
+  # 2) 二进制缺失或版本不一致 → 询问后下载
+  if (( needs_install==1 )) || [[ "$CURRENT" != "$LATEST" ]]; then
+    if (( needs_install==0 )); then
+      warn "检测到版本不一致: ${CURRENT} → ${LATEST}"
+      read -p "覆盖安装? (y/N): " ans
+      if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+        log "跳过二进制覆盖"
+      else
+        download_binary "$LATEST"
+      fi
+    else
+      download_binary "$LATEST"
+    fi
+  else
+    ok "二进制已就位: ${CURRENT}"
+  fi
+
+  # 3) 补齐缺失组件
+  local missing=()
+  (( needs_unit ))     && missing+=("systemd unit")
+  (( needs_shortcut )) && missing+=("mesh 快捷命令")
+  (( needs_envdir ))   && missing+=("data 目录")
+  if (( ${#missing[@]} > 0 )); then
+    warn "检测到以下组件缺失: ${missing[*]} — 正在修复..."
+  fi
+
+  if (( needs_unit )); then
+    write_systemd_unit
+  fi
+  if (( needs_shortcut )); then
+    install_shortcut
+  fi
+  if (( needs_envdir )); then
+    mkdir -p "${INSTALL_DIR}/data"
+    ok "已创建数据目录: ${INSTALL_DIR}/data"
+  fi
+
   systemctl daemon-reload
   systemctl enable -q ${SERVICE_NAME}.service
   systemctl restart ${SERVICE_NAME}.service

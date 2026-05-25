@@ -167,11 +167,29 @@ def _match_landing_node(session: Session, out: dict) -> Optional[int]:
     port = out.get("port")
     if not server or not port:
         return None
+    try:
+        port_int = int(port)
+    except (TypeError, ValueError):
+        return None
     nodes = session.exec(select(Node).where(Node.kind == "landing", Node.host == server)).all()
+    import json as _json
     for n in nodes:
-        # 简化:暂不匹配 port,只匹配 host(避免引入 ss_config 解析)
-        # 未来可以补 port 匹配
-        return n.id
+        cfg_raw = getattr(n, "ss_config", None)
+        if not cfg_raw:
+            continue
+        try:
+            cfg = _json.loads(cfg_raw) if isinstance(cfg_raw, str) else cfg_raw
+        except Exception:
+            continue
+        if not isinstance(cfg, dict):
+            continue
+        lp = cfg.get("listen_port")
+        try:
+            lp_int = int(lp) if lp is not None else None
+        except (TypeError, ValueError):
+            continue
+        if lp_int is not None and lp_int == port_int:
+            return n.id
     return None
 
 

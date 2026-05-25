@@ -50,7 +50,7 @@
     <!-- 空状态 -->
     <el-empty
       v-if="!loading && filteredNodes.length === 0"
-      :description="nodes.length === 0 ? '还没有节点,点右上角添加一个' : '此分类下暂无节点'"
+      :description="nodes.length === 0 ? '还没有节点' : '此分类下暂无节点'"
       class="empty"
     >
       <el-button v-if="nodes.length === 0" type="primary" @click="openCreate">添加第一个节点</el-button>
@@ -59,7 +59,7 @@
     <!-- 节点列表 (卡片 / 紧凑) -->
     <draggable
       v-else
-      v-model="nodes"
+      :list="filteredNodes"
       class="grid"
       :class="`grid-${viewMode}`"
       item-key="id"
@@ -71,7 +71,7 @@
       v-loading="loading && nodes.length === 0"
     >
       <template #item="{ element: row }">
-      <div v-show="kindFilter === 'all' || (row.kind || 'landing') === kindFilter" class="node-item">
+      <div class="node-item">
       <div v-if="viewMode==='card'" class="card" :class="{ 'card-online': row.agent_status === 'online', 'card-offline': row.deploy_status === 'deployed' && row.agent_status !== 'online' }">
         <div class="card-head">
           <span
@@ -94,39 +94,16 @@
               </div>
             </div>
           </div>
-          <el-dropdown trigger="click" @command="(c) => onCardCmd(c, row)">
-            <el-button text :icon="MoreFilled" class="more-btn" />
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item
-                  command="deploy"
-                  :icon="Upload"
-                  :disabled="row.deploy_status === 'deploying'"
-                >
-                  {{ row.deploy_status === 'deployed' ? '重新部署' : (row.deploy_status === 'failed' ? '重试部署' : '部署') }}
-                </el-dropdown-item>
-                <el-dropdown-item
-                  v-if="(row.kind || 'landing') !== 'other'"
-                  command="ss"
-                  :icon="Setting"
-                  :disabled="row.deploy_status !== 'deployed'"
-                >节点配置</el-dropdown-item>
-                <el-dropdown-item command="detail" :icon="Document">详情</el-dropdown-item>
-                <el-dropdown-item command="edit" :icon="Edit">编辑</el-dropdown-item>
-                <el-dropdown-item
-                  v-if="row.deploy_status === 'deployed'"
-                  command="uninstall"
-                  :icon="RemoveFilled"
-                  divided
-                >
-                  <span class="danger-item">卸载</span>
-                </el-dropdown-item>
-                <el-dropdown-item v-else command="remove" :icon="Delete" divided>
-                  <span class="danger-item">删除</span>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
+          <NodeMenu
+            :row="row"
+            btn-class="more-btn"
+            @deploy="deployNode"
+            @ss="openSSConfig"
+            @detail="openDetail"
+            @edit="openEdit"
+            @uninstall="uninstallNode"
+            @remove="removeNode"
+          />
         </div>
 
         <div class="card-addr">
@@ -291,39 +268,16 @@
         </div>
         <div v-else class="rc-metrics-empty muted">无数据</div>
 
-        <el-dropdown trigger="click" @command="(c) => onCardCmd(c, row)">
-          <el-button text :icon="MoreFilled" class="rc-more" />
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item
-                command="deploy"
-                :icon="Upload"
-                :disabled="row.deploy_status === 'deploying'"
-              >
-                {{ row.deploy_status === 'deployed' ? '重新部署' : (row.deploy_status === 'failed' ? '重试部署' : '部署') }}
-              </el-dropdown-item>
-              <el-dropdown-item
-                v-if="(row.kind || 'landing') !== 'other'"
-                command="ss"
-                :icon="Setting"
-                :disabled="row.deploy_status !== 'deployed'"
-              >节点配置</el-dropdown-item>
-              <el-dropdown-item command="detail" :icon="Document">详情</el-dropdown-item>
-              <el-dropdown-item command="edit" :icon="Edit">编辑</el-dropdown-item>
-              <el-dropdown-item
-                v-if="row.deploy_status === 'deployed'"
-                command="uninstall"
-                :icon="RemoveFilled"
-                divided
-              >
-                <span class="danger-item">卸载</span>
-              </el-dropdown-item>
-              <el-dropdown-item v-else command="remove" :icon="Delete" divided>
-                <span class="danger-item">删除</span>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <NodeMenu
+          :row="row"
+          btn-class="rc-more"
+          @deploy="deployNode"
+          @ss="openSSConfig"
+          @detail="openDetail"
+          @edit="openEdit"
+          @uninstall="uninstallNode"
+          @remove="removeNode"
+        />
       </div>
       </div>
       </template>
@@ -356,9 +310,8 @@
             clearable
             style="width: 200px"
           >
-            <template #prepend>
-              <img v-if="form.country && form.country.length === 2" :src="`https://flagcdn.com/w40/${form.country.toLowerCase()}.png`" style="width:20px;height:14px;object-fit:cover;border-radius:2px;vertical-align:middle" />
-              <span v-else style="font-size: 14px">🌐</span>
+            <template v-if="form.country && form.country.length === 2" #prepend>
+              <img :src="`https://flagcdn.com/w40/${form.country.toLowerCase()}.png`" style="width:20px;height:14px;object-fit:cover;border-radius:2px;vertical-align:middle" />
             </template>
           </el-input>
         </el-form-item>
@@ -378,7 +331,7 @@
           />
         </el-form-item>
         <el-form-item label="用户" prop="ssh_user">
-          <el-input v-model="form.ssh_user" />
+          <el-input v-model="form.ssh_user" placeholder="root" />
         </el-form-item>
         <el-form-item label="认证方式" prop="auth_type">
           <el-radio-group v-model="form.auth_type">
@@ -465,14 +418,15 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, Refresh, MoreFilled, Monitor, Clock,
-  Upload, Setting, Document, Edit, Delete, RemoveFilled, CopyDocument,
-  Top, Bottom, Cpu, Loading, Grid, Menu,
+  Refresh, Monitor, Clock,
+  CopyDocument,
+  Top, Bottom, Loading, Grid, Menu,
 } from '@element-plus/icons-vue'
 import { nodeApi } from '../api.js'
 import draggable from 'vuedraggable'
 import SSConfigDrawer from './SSConfigDrawer.vue'
 import SogaConfigDrawer from './SogaConfigDrawer.vue'
+import NodeMenu from './NodeMenu.vue'
 
 const ssDrawerRef = ref(null)
 const sogaDrawerRef = ref(null)
@@ -560,7 +514,7 @@ const stats = computed(() => {
 
 const emptyForm = () => ({
   kind: 'landing',
-  name: '', host: '', ssh_port: 22, ssh_user: 'root',
+  name: '', host: '', ssh_port: null, ssh_user: '',
   auth_type: 'password', ssh_password: '', ssh_private_key: '',
   agent_iface: '',
   country: '',
@@ -647,12 +601,6 @@ function splitBytes(b) {
   const s = fmtBytes(b)
   const idx = s.lastIndexOf(' ')
   return idx > 0 ? { num: s.slice(0, idx), unit: s.slice(idx + 1) } : { num: s, unit: '' }
-}
-function flagEmoji(cc) {
-  if (!cc || cc.length !== 2) return ''
-  const code = cc.toUpperCase()
-  return String.fromCodePoint(0x1F1E6 + code.charCodeAt(0) - 65) +
-         String.fromCodePoint(0x1F1E6 + code.charCodeAt(1) - 65)
 }
 function fmtBytes(b) {
   if (!b) return '0 B'
@@ -764,10 +712,17 @@ async function removeNode(row) {
   await load()
 }
 
+function svcLabelFor(kind) {
+  const k = kind || 'landing'
+  if (k === 'landing') return 'sing-box'
+  if (k === 'soga') return 'soga'
+  return 'mesh-agent'
+}
+
 async function uninstallNode(row) {
   try {
     await ElMessageBox.confirm(
-      `卸载「${row.name}」?将清除 sing-box / mesh-agent。`,
+      `卸载 ${svcLabelFor(row.kind)}?`,
       '卸载节点',
       { type: 'warning', confirmButtonText: '卸载', cancelButtonText: '取消' },
     )
@@ -798,7 +753,7 @@ async function uninstallNode(row) {
 async function deployNode(row) {
   if (row.deploy_status === 'deployed') {
     try {
-      await ElMessageBox.confirm('该节点已部署，重新部署会覆盖现有 sing-box 二进制并重启服务，确定继续？', '确认重新部署', { type: 'warning' })
+      await ElMessageBox.confirm(`重新部署?将覆盖 ${svcLabelFor(row.kind)} 并重启`, '确认重新部署', { type: 'warning' })
     } catch { return }
   }
   row._deploying = true
@@ -843,15 +798,6 @@ async function refreshLog() {
 async function copyLog() {
   try { await navigator.clipboard.writeText(logText.value); ElMessage.success('已复制') }
   catch { ElMessage.error('复制失败') }
-}
-
-function onCardCmd(cmd, row) {
-  if (cmd === 'deploy') return deployNode(row)
-  if (cmd === 'ss') return openSSConfig(row)
-  if (cmd === 'detail') return openDetail(row)
-  if (cmd === 'edit') return openEdit(row)
-  if (cmd === 'uninstall') return uninstallNode(row)
-  if (cmd === 'remove') return removeNode(row)
 }
 
 function onResize() { winW.value = window.innerWidth }
@@ -939,53 +885,6 @@ onBeforeUnmount(() => {
 .net-row .net-num { color: inherit; }
 .net-row .net-unit { font-size: 10px; color: #9ca3af; font-weight: 500; margin-left: 1px; }
 
-.toolbar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap;
-  background: #fff; border-radius: 10px; padding: 14px 18px;
-  border: 1px solid #e5e7eb;
-}
-.stats {
-  display: flex; align-items: center; gap: 0;
-  background: #fff;
-  border: 1px solid #eef0f3;
-  border-radius: 10px;
-  padding: 10px 4px;
-}
-.stat {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 2px 16px;
-}
-.stat-sep { width: 1px; height: 32px; background: #eef0f3; flex-shrink: 0; }
-.stat-num {
-  font-size: 20px; font-weight: 600; color: #1f2937;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, sans-serif;
-  display: inline-flex; align-items: baseline; gap: 4px;
-  white-space: nowrap;
-}
-.stat-unit {
-  font-size: 11px; font-weight: 500; color: #9ca3af;
-  margin-left: 3px; letter-spacing: 0.02em;
-}
-.stat-icon {
-  display: inline-flex; align-items: center;
-  font-size: 14px; line-height: 1; margin-right: 1px;
-  align-self: center;
-}
-.stat-icon.down { color: #10b981; }
-.stat-icon.up   { color: #6366f1; }
-.stat-label {
-  font-size: 12px; color: #9ca3af; margin-top: 4px;
-  letter-spacing: 0.02em;
-}
-.stat-warn { color: #f43f5e; }
-.text-success { color: #10b981; }
-.text-primary { color: #6366f1; }
-.actions { display: flex; gap: 8px; align-items: center; }
-
 /* 卡片网格 */
 .grid {
   display: grid;
@@ -1016,7 +915,8 @@ onBeforeUnmount(() => {
   transition: background 0.3s;
 }
 .card-online::before {
-  background: linear-gradient(90deg, #10b981, #6366f1);
+  background: #10b981;
+  opacity: 0.6;
 }
 .card-offline {
   border-color: #fecaca;
@@ -1313,7 +1213,6 @@ onBeforeUnmount(() => {
 .total-val {
   font-size: 14px; font-weight: 600; color: var(--probe-text);
 }
-.total-label { display: none; }
 
 /* 卡片头部副标题（CPU 型号等） */
 .title-text { display: flex; flex-direction: column; min-width: 0; gap: 5px; }
@@ -1350,12 +1249,6 @@ onBeforeUnmount(() => {
   font-size: 11px; font-weight: 500;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, sans-serif;
   flex-shrink: 0;
-}
-.agent-ver { display: none; }
-.probe-foot { display: none; }
-
-.field-hint {
-  font-size: 12px; color: #9ca3af; margin-top: 4px;
 }
 
 /* 编辑/新增抽屉:与 SettingsDialog 风格统一 */
@@ -1402,9 +1295,6 @@ onBeforeUnmount(() => {
 
 /* 小屏 */
 @media (max-width: 640px) {
-  .toolbar { padding: 12px; }
-  .stats { gap: 18px; }
-  .stat-num { font-size: 18px; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
 }
 /* ─── 节点分类 tabs ─── */

@@ -92,7 +92,6 @@ async def update_node(node_id: int, payload: NodeUpdate, session: Session = Depe
     changes = payload.model_dump(exclude_unset=True)
     if "auth_type" in changes and changes["auth_type"] not in ("password", "key"):
         raise HTTPException(400, "auth_type 必须是 password 或 key")
-    iface_changed = "agent_iface" in changes and changes["agent_iface"] != node.agent_iface
     # 凭据字段如果传了,加密后再写
     from security.crypto import encrypt as _enc
     if "ssh_password" in changes and changes["ssh_password"]:
@@ -105,21 +104,31 @@ async def update_node(node_id: int, payload: NodeUpdate, session: Session = Depe
     session.add(node)
     session.commit()
     session.refresh(node)
-
-    # iface 改了就下发给在线 agent
-    if iface_changed:
-        ws = _connections.get(node_id)
-        lock = _write_locks.get(node_id)
-        if ws is not None and lock is not None:
-            try:
-                async with lock:
-                    await ws.send_text(json.dumps({
-                        "type": "set_iface",
-                        "iface": node.agent_iface or "",
-                    }))
-            except Exception:
-                pass
+    # PATCH 仅写 DB,不再下发任何 agent 命令(显式接口: POST /{id}/agent/apply-iface)
     return _ok(NodeRead.from_node(node).model_dump(mode="json"))
+
+
+@router.post("/{node_id}/agent/apply-iface")
+async def apply_iface(node_id: int, session: Session = Depends(get_session)):
+    """显式将当前 DB 中的 agent_iface 下发给在线 agent。"""
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, "节点不存在")
+    if node.deploy_status != "deployed":
+        raise HTTPException(400, "节点尚未部署,无法下发 iface")
+    ws = _connections.get(node_id)
+    lock = _write_locks.get(node_id)
+    if ws is None or lock is None:
+        raise HTTPException(400, "agent 当前不在线")
+    try:
+        async with lock:
+            await ws.send_text(json.dumps({
+                "type": "set_iface",
+                "iface": node.agent_iface or "",
+            }))
+    except Exception as e:
+        raise HTTPException(500, f"下发失败: {e}")
+    return _ok({"id": node_id, "iface": node.agent_iface or ""})
 
 
 @router.delete("/{node_id}")
