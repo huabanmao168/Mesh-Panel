@@ -156,6 +156,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
+/* 全局隐藏滚动条视觉,保留滚动能力(避免滚动条占宽度遮挡 tabs 等内容) */
+* {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge */
+}
+*::-webkit-scrollbar {
+  display: none;                  /* Chrome/Safari/新版 Edge */
+  width: 0;
+  height: 0;
+}
+
 /* 全站:数字输入框去掉浏览器原生上下小箭头 */
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button {
