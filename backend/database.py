@@ -1,12 +1,16 @@
 """SQLModel engine + session 工厂。"""
 from sqlmodel import SQLModel, create_engine, Session
 from sqlalchemy import text, event
+from sqlalchemy.pool import StaticPool
 from config import DATABASE_URL
 
-# SQLite 多线程:FastAPI 的 threadpool 会跨线程用 session
+# SQLite 用 StaticPool:全局共用一条连接 + WAL,避免 QueuePool 在 ws 心跳/sweep 同时持有
+# session 时撞 pool 上限 (默认 5+10=15) 报 "QueuePool limit reached"。
+# SQLite 本来就是单写串行,多连接也不会真并行写。
 engine = create_engine(
     DATABASE_URL,
     echo=False,
+    poolclass=StaticPool,
     connect_args={"check_same_thread": False},
 )
 
