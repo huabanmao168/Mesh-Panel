@@ -42,6 +42,10 @@ async def lifespan(app: FastAPI):
         log.critical("凭据加密迁移失败,拒绝启动: %s", e, exc_info=True)
         sys.exit(1)
     sweep_task = asyncio.create_task(sweep_offline_loop())
+    # 绑定主事件循环给 agent_rpc,让同步代码能桥接 RPC 调用
+    # (之前只在第一个 WS 连接时绑,导致无 agent 连过时 scan 500)
+    from deploy.agent_rpc import bind_loop
+    bind_loop(asyncio.get_running_loop())
     try:
         yield
     finally:

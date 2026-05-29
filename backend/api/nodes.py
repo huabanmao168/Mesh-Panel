@@ -22,34 +22,48 @@ def _cascade_delete_node_soga(session: Session, node_id: int) -> dict:
     清理范围:
     - 该节点作为入口机时: soga_instances + 下属 soga_routes + soga_route_outs
     - 该节点作为落地机时: 其它入口机的 soga_route_outs.landing_node_id == node_id
-      (这种情况会让其它入口机的路由变残,只能清掉等用户重配)
 
-    返回清理统计供日志/审计用。
+    用 raw SQL 按正确 FK 顺序删除,绕开 ORM flush 重排导致的 FK 违反。
     """
-    # 1. 作为入口机: 删 instances 及子表
+    from sqlalchemy import text
+
+    # 1. 作为入口机: 先删 outs → routes → instances (FK 顺序)
     insts = session.exec(select(SogaInstance).where(SogaInstance.node_id == node_id)).all()
-    inst_cnt = len(insts)
+    inst_ids = [i.id for i in insts]
+    inst_cnt = len(inst_ids)
     route_cnt = 0
     out_cnt = 0
-    for inst in insts:
-        routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == inst.id)).all()
-        for r in routes:
-            outs = session.exec(select(SogaRouteOut).where(SogaRouteOut.route_id == r.id)).all()
-            for o in outs:
-                session.delete(o)
-                out_cnt += 1
-            session.delete(r)
-            route_cnt += 1
-        session.delete(inst)
+
+    if inst_ids:
+        # 删 outs (子查询方式,不需要 IN 绑定 tuple)
+        session.exec(text(
+            "DELETE FROM soga_route_outs WHERE route_id IN "
+            "(SELECT id FROM soga_routes WHERE instance_id IN "
+            "(SELECT id FROM soga_instances WHERE node_id = :nid))"
+        ).bindparams(nid=node_id))
+
+        # 统计 (近似,删前查)
+        routes = session.exec(select(SogaRoute).where(
+            SogaRoute.instance_id.in_(inst_ids)  # type: ignore
+        )).all()
+        route_cnt = len(routes)
+
+        # 删 routes
+        session.exec(text(
+            "DELETE FROM soga_routes WHERE instance_id IN "
+            "(SELECT id FROM soga_instances WHERE node_id = :nid)"
+        ).bindparams(nid=node_id))
+
+        # 删 instances
+        session.exec(text(
+            "DELETE FROM soga_instances WHERE node_id = :nid"
+        ).bindparams(nid=node_id))
 
     # 2. 作为落地机: 清其它入口机引用了它的 outs
-    dangling_outs = session.exec(
-        select(SogaRouteOut).where(SogaRouteOut.landing_node_id == node_id)
-    ).all()
-    dangling_cnt = 0
-    for o in dangling_outs:
-        session.delete(o)
-        dangling_cnt += 1
+    session.exec(text(
+        "DELETE FROM soga_route_outs WHERE landing_node_id = :nid"
+    ).bindparams(nid=node_id))
+    dangling_cnt = 0  # raw SQL rowcount 在 SQLModel 下不可靠,简化
 
     session.flush()
     return {
