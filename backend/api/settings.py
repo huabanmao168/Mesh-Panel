@@ -1,5 +1,5 @@
 """/api/settings —— 全局设置 CRUD + 证书上传。"""
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException

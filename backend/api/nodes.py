@@ -1,6 +1,6 @@
 """/api/nodes —— 节点 CRUD + SSH 测试 + 部署 + agent。"""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException

@@ -1,5 +1,5 @@
 """Node 表：节点的 SSH 连接信息 + 最近一次连通性状态。"""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 

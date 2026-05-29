@@ -8,7 +8,7 @@
 """
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import bcrypt

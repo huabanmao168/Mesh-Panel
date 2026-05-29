@@ -1,6 +1,6 @@
 """/api/nodes/{id}/ss-config —— SS 配置 CRUD + apply + preview。"""
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session

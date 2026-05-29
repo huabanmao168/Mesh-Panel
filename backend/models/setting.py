@@ -1,5 +1,5 @@
 """Settings 表：key/value 全局配置。"""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
