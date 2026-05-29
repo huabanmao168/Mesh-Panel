@@ -9,7 +9,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import Session, select, col
 from sqlalchemy import text
 
 from database import get_session
@@ -97,12 +97,25 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
             session.add(inst)
 
         # 重建路由树(全删全建,简单粗暴)
-        old_routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == inst.id)).all()
-        for r in old_routes:
-            for o in session.exec(select(SogaRouteOut).where(SogaRouteOut.route_id == r.id)).all():
+        # 注意: 先 bulk 删所有 outs + commit, 再删 routes, 绕开 autoflush 顺序
+        # 触发 SQLite FK 约束失败的坑(SogaRouteOut.route_id 未声明 ondelete=CASCADE)。
+        old_route_ids = [
+            r.id for r in session.exec(
+                select(SogaRoute).where(SogaRoute.instance_id == inst.id)
+            ).all()
+        ]
+        if old_route_ids:
+            # 先清子表(outs),再清孤儿 outs(防御历史脏数据),最后清父表(routes)
+            for o in session.exec(
+                select(SogaRouteOut).where(col(SogaRouteOut.route_id).in_(old_route_ids))
+            ).all():
                 session.delete(o)
-            session.delete(r)
-        session.commit()
+            session.commit()
+            for r in session.exec(
+                select(SogaRoute).where(SogaRoute.instance_id == inst.id)
+            ).all():
+                session.delete(r)
+            session.commit()
 
         for pos, route in enumerate(s["routes"]):
             # 系统探活路由不入库:新版统一由面板按 node.soga_system_probe 自动注入
