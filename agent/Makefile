@@ -1,4 +1,4 @@
-VERSION ?= 2.2.1
+VERSION ?= 2.2.2
 DIST := ../backend/agent_dist
 LDFLAGS := -s -w -X main.Version=$(VERSION)
 
