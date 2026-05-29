@@ -362,6 +362,28 @@ async def agent_reload(node_id: int, session: Session = Depends(get_session)):
     return _ok({"success": ok, "message": msg})
 
 
+@router.post("/{node_id}/deploy/reset")
+def reset_deploy_status(node_id: int, session: Session = Depends(get_session)):
+    """强制重置卡死的部署状态（仅当前状态为 deploying 时允许）。
+
+    用于后端被中断/重启导致 deploy_status 永远停在 deploying，
+    前端按钮被锁死无法重新部署的情况。
+    """
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, "节点不存在")
+    if node.deploy_status != "deploying":
+        raise HTTPException(400, f"当前状态为 {node.deploy_status}，仅 deploying 可重置")
+
+    node.deploy_status = "failed"
+    node.deploy_log = (node.deploy_log or "") + "\n[用户强制重置] 部署状态从 deploying 重置为 failed"
+    node.updated_at = datetime.utcnow()
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    return _ok({"node": NodeRead.from_node(node).model_dump(mode="json")})
+
+
 @router.get("/{node_id}/deploy/log")
 def get_deploy_log(node_id: int, session: Session = Depends(get_session)):
     node = session.get(Node, node_id)

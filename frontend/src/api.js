@@ -48,6 +48,7 @@ export const nodeApi = {
   update: (id, payload) => http.patch(`/nodes/${id}`, payload),
   remove: (id) => http.delete(`/nodes/${id}`),
   deploy: (id) => http.post(`/nodes/${id}/deploy`, null, { timeout: 620000 }),
+  deployReset: (id) => http.post(`/nodes/${id}/deploy/reset`),
   deployLog: (id) => http.get(`/nodes/${id}/deploy/log`),
   redeployAgentConfig: (id) => http.post(`/nodes/${id}/agent/redeploy-config`),
   agentReload: (id) => http.post(`/nodes/${id}/agent/reload`),

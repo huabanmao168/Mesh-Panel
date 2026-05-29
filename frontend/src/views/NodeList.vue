@@ -120,6 +120,7 @@
             :row="row"
             btn-class="more-btn"
             @deploy="deployNode"
+            @resetDeploy="resetDeployStatus"
             @ss="openSSConfig"
             @detail="openDetail"
             @edit="openEdit"
@@ -793,6 +794,24 @@ async function deployNode(row) {
     await load()
   } finally {
     row._deploying = false
+  }
+}
+
+async function resetDeployStatus(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认强制重置「${row.name}」的部署状态?\n仅在部署确实卡死时使用。`,
+      '强制重置部署状态',
+      { type: 'warning' },
+    )
+  } catch { return }
+  try {
+    const resp = await nodeApi.deployReset(row.id)
+    Object.assign(row, resp.data.node, { _deploying: false })
+    ElMessage.success('部署状态已重置')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '重置失败')
+    await load()
   }
 }
 

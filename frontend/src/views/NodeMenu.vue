@@ -11,6 +11,13 @@
           {{ row.deploy_status === 'deployed' ? '重新部署' : (row.deploy_status === 'failed' ? '重试部署' : '部署') }}
         </el-dropdown-item>
         <el-dropdown-item
+          v-if="row.deploy_status === 'deploying'"
+          command="resetDeploy"
+          :icon="RefreshLeft"
+        >
+          <span class="danger-item">重置部署状态</span>
+        </el-dropdown-item>
+        <el-dropdown-item
           v-if="(row.kind || 'landing') !== 'other'"
           command="ss"
           :icon="Setting"
@@ -36,14 +43,14 @@
 
 <script setup>
 import {
-  MoreFilled, Upload, Setting, Document, Edit, Delete, RemoveFilled,
+  MoreFilled, Upload, Setting, Document, Edit, Delete, RemoveFilled, RefreshLeft,
 } from '@element-plus/icons-vue'
 
 const props = defineProps({
   row: { type: Object, required: true },
   btnClass: { type: String, default: 'more-btn' },
 })
-const emit = defineEmits(['deploy', 'ss', 'detail', 'edit', 'uninstall', 'remove'])
+const emit = defineEmits(['deploy', 'resetDeploy', 'ss', 'detail', 'edit', 'uninstall', 'remove'])
 
 function onCmd(cmd) {
   emit(cmd, props.row)
