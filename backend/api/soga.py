@@ -5,6 +5,7 @@
 - GET  /api/soga/{node_id}/instances  列出已扫描的实例(从 DB 取)
 - GET  /api/soga/instances/{id}/routes 拉某个实例的完整路由树
 """
+import threading
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -17,6 +18,21 @@ from models.node import Node
 from models.soga import SogaInstance, SogaRoute, SogaRouteOut
 from deploy.soga_scan import scan_soga_instances, ScanError
 from deploy.soga_push import SYSTEM_PROBE_RULES as SYSTEM_PROBE_DEFAULTS
+
+
+# 每个 node_id 一把锁: 同节点的 scan 串行执行,防止并发 scan
+# 互相踩导致 FK 约束失败 / refresh instance not found 等竞态。
+_scan_locks: dict[int, threading.Lock] = {}
+_scan_locks_guard = threading.Lock()
+
+
+def _get_scan_lock(node_id: int) -> threading.Lock:
+    with _scan_locks_guard:
+        lock = _scan_locks.get(node_id)
+        if lock is None:
+            lock = threading.Lock()
+            _scan_locks[node_id] = lock
+        return lock
 
 router = APIRouter(prefix="/api/soga", tags=["soga"])
 
@@ -55,7 +71,19 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
 
     幂等:已存在的 folder 复用同一 instance,只刷新路由树。
     DB 里有但节点上消失的 folder → 标记 enabled=false (不删,保留历史)。
+
+    并发保护: 同一 node 的 scan 串行执行,避免 SQLite FK + ORM autoflush 竞态。
     """
+    lock = _get_scan_lock(node_id)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "该节点正在扫描中,请等当前扫描完成")
+    try:
+        return _do_scan(node_id, session)
+    finally:
+        lock.release()
+
+
+def _do_scan(node_id: int, session: Session):
     node = _require_soga_node(session, node_id)
 
     try:
@@ -97,25 +125,24 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
             session.add(inst)
 
         # 重建路由树(全删全建,简单粗暴)
-        # 注意: 先 bulk 删所有 outs + commit, 再删 routes, 绕开 autoflush 顺序
-        # 触发 SQLite FK 约束失败的坑(SogaRouteOut.route_id 未声明 ondelete=CASCADE)。
-        old_route_ids = [
-            r.id for r in session.exec(
-                select(SogaRoute).where(SogaRoute.instance_id == inst.id)
-            ).all()
-        ]
-        if old_route_ids:
-            # 先清子表(outs),再清孤儿 outs(防御历史脏数据),最后清父表(routes)
-            for o in session.exec(
-                select(SogaRouteOut).where(col(SogaRouteOut.route_id).in_(old_route_ids))
-            ).all():
-                session.delete(o)
-            session.commit()
-            for r in session.exec(
-                select(SogaRoute).where(SogaRoute.instance_id == inst.id)
-            ).all():
-                session.delete(r)
-            session.commit()
+        # 用 raw SQL bulk delete 绕开 ORM autoflush + SQLite FK 顺序坑。
+        # 先删子表 outs,再删父表 routes;一次性,同事务。
+        session.exec(text(
+            "DELETE FROM soga_route_outs WHERE route_id IN "
+            "(SELECT id FROM soga_routes WHERE instance_id = :iid)"
+        ).bindparams(iid=inst.id))
+        # 顺手清孤儿 outs(防御历史脏数据)
+        session.exec(text(
+            "DELETE FROM soga_route_outs WHERE route_id NOT IN (SELECT id FROM soga_routes)"
+        ))
+        session.exec(text(
+            "DELETE FROM soga_routes WHERE instance_id = :iid"
+        ).bindparams(iid=inst.id))
+        # flush 让 ORM session 跟上 DB 状态,后面 add 新 route 才不会撞 stale 引用
+        session.flush()
+        # raw SQL DELETE 不会让 ORM identity map 失效,显式 expire 让缓存
+        # 里的旧 SogaRoute/SogaRouteOut 对象无效化
+        session.expire_all()
 
         for pos, route in enumerate(s["routes"]):
             # 系统探活路由不入库:新版统一由面板按 node.soga_system_probe 自动注入
@@ -130,8 +157,7 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
                 is_fallback=route.get("is_fallback", False),
             )
             session.add(r)
-            session.commit()
-            session.refresh(r)
+            session.flush()  # 拿到 r.id,不 commit
             for opos, out in enumerate(route.get("outs", [])):
                 landing_id = _match_landing_node(session, out)
                 if landing_id is None:
@@ -142,7 +168,8 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
                     position=opos,
                     landing_node_id=landing_id,
                 ))
-            session.commit()
+        # 一个 instance 的 routes + outs 一次性 commit
+        session.commit()
 
         result.append({
             "id": inst.id,
