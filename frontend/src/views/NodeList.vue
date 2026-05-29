@@ -370,7 +370,7 @@
           <el-descriptions-item v-else-if="detailNode.kind === 'landing'" label="sing-box">{{ detailNode.singbox_version ? `v${detailNode.singbox_version}` : '—' }}</el-descriptions-item>
           <el-descriptions-item label="系统">{{ detailNode.os_pretty || metrics[detailNode.id]?.os_pretty || '—' }}</el-descriptions-item>
           <el-descriptions-item label="架构">{{ detailNode.arch || '—' }}</el-descriptions-item>
-          <el-descriptions-item v-if="detailNode.kind === 'landing'" label="config schema">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
+          <el-descriptions-item v-if="detailNode.kind === 'landing'" label="配置版本">{{ detailNode.config_schema || '—' }}</el-descriptions-item>
           <el-descriptions-item label="部署时间">{{ fmtTime(detailNode.deployed_at) }}</el-descriptions-item>
         </el-descriptions>
 
@@ -755,7 +755,6 @@ async function uninstallNode(row) {
     )
   } catch { return }
 
-  row._uninstalling = true
   try {
     const resp = await nodeApi.uninstall(row.id, { delete_node: false })
     if (resp.data.success) {
@@ -773,7 +772,7 @@ async function uninstallNode(row) {
       }).catch(() => {})
     }
   } finally {
-    row._uninstalling = false
+    // done
   }
 }
 
@@ -1063,7 +1062,6 @@ onBeforeUnmount(() => {
   background: #fafbfc; border-radius: 10px;
 }
 .loading-icon { animation: spin 1.2s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* 速率行：实时 ↓ / ↑ */
 .probe-speed {

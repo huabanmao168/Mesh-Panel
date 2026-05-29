@@ -11,7 +11,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, select, col
+from sqlmodel import Session, select
 from sqlalchemy import text
 
 from database import get_session

@@ -9,7 +9,7 @@ class Setting(SQLModel, table=True):
 
     key: str = Field(primary_key=True)
     value: str = Field(default="")
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # 默认设置项及缺省值

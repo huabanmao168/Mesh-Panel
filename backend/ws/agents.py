@@ -40,7 +40,7 @@ def _persist_os_pretty(node_id: int, os_pretty: str) -> None:
             n = s.get(Node, node_id)
             if n is not None and n.os_pretty != os_pretty:
                 n.os_pretty = os_pretty
-                n.updated_at = datetime.utcnow()
+                n.updated_at = datetime.now(timezone.utc)
                 s.add(n)
                 s.commit()
     except Exception as e:  # noqa: BLE001
@@ -52,7 +52,7 @@ def get_metrics(node_id: int) -> Optional[dict]:
     m = _metrics.get(node_id)
     if not m:
         return None
-    age = (datetime.utcnow() - m["_recv_at"]).total_seconds()
+    age = (datetime.now(timezone.utc) - m["_recv_at"]).total_seconds()
     if age > METRICS_FRESH.total_seconds():
         return None
     return {k: v for k, v in m.items() if not k.startswith("_")}
@@ -75,10 +75,10 @@ def _mark_status(node_id: int, online: bool, version: Optional[str] = None) -> N
             return
         node.agent_status = "online" if online else "offline"
         if online:
-            node.agent_last_seen = datetime.utcnow()
+            node.agent_last_seen = datetime.now(timezone.utc)
             if version:
                 node.agent_version = version
-        node.updated_at = datetime.utcnow()
+        node.updated_at = datetime.now(timezone.utc)
         s.add(node)
         s.commit()
 
@@ -88,7 +88,7 @@ def _touch_last_seen(node_id: int) -> None:
         node = s.get(Node, node_id)
         if not node:
             return
-        node.agent_last_seen = datetime.utcnow()
+        node.agent_last_seen = datetime.now(timezone.utc)
         s.add(node)
         s.commit()
 
@@ -180,7 +180,7 @@ async def node_ws(
                     "tcp_conn": int(msg.get("tcp_conn", 0)),
                     "udp_conn": int(msg.get("udp_conn", 0)),
                     "uptime_sec": int(msg.get("uptime_sec", 0)),
-                    "_recv_at": datetime.utcnow(),
+                    "_recv_at": datetime.now(timezone.utc),
                 }
                 # os_pretty 老 agent 不上报,值为空时不动 DB;新 agent 上报则持久化
                 os_pretty = msg.get("os_pretty")
@@ -240,7 +240,7 @@ async def sweep_offline_loop():
     """每 30s 扫一次：心跳超 60s 没到的强标 offline（兜底）。"""
     while True:
         try:
-            cutoff = datetime.utcnow() - HEARTBEAT_TIMEOUT
+            cutoff = datetime.now(timezone.utc) - HEARTBEAT_TIMEOUT
             with Session(engine) as s:
                 stale = s.exec(
                     select(Node).where(
@@ -259,7 +259,7 @@ async def sweep_offline_loop():
                         _write_locks.pop(n.id, None)
                     agent_rpc.fail_all_for_node(n.id, reason="心跳超时")
                     n.agent_status = "offline"
-                    n.updated_at = datetime.utcnow()
+                    n.updated_at = datetime.now(timezone.utc)
                     s.add(n)
                 if stale:
                     s.commit()

@@ -73,7 +73,7 @@ const rules = computed(() => ({
         { required: true, message: ' ', trigger: 'blur' },
         {
           validator: (_, v, cb) =>
-            v === form.password ? cb() : cb(new Error('两次不一致')),
+            v === form.password ? cb() : cb(new Error('两次密码不一致')),
           trigger: 'blur',
         },
       ]

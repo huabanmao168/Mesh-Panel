@@ -76,7 +76,6 @@ export const nodeApi = {
   deployReset: (id, opts) => http.post(`/nodes/${id}/deploy/reset`, null, opts),
   deployLog: (id, opts) => http.get(`/nodes/${id}/deploy/log`, opts),
   redeployAgentConfig: (id, opts) => http.post(`/nodes/${id}/agent/redeploy-config`, null, opts),
-  agentReload: (id, opts) => http.post(`/nodes/${id}/agent/reload`, null, opts),
   uninstall: (id, payload, opts) => http.post(`/nodes/${id}/uninstall`, payload, { timeout: 90000, ...opts }),
   reorder: (ids, opts) => http.put('/nodes/order', { ids }, opts),
 }

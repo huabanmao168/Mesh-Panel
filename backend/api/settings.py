@@ -61,7 +61,7 @@ def _read(payload: dict, key: str) -> str:
 @router.patch("")
 def update_settings(payload: dict, session: Session = Depends(get_session)):
     _validate(payload, session)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for k, v in payload.items():
         if k not in DEFAULTS:
             continue
@@ -109,7 +109,7 @@ async def upload_cert(
     except Exception:
         pass
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for k, v in [("tls_cert_path", str(cert_path)), ("tls_key_path", str(key_path))]:
         row = session.get(Setting, k)
         if row is None:

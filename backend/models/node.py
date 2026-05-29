@@ -73,8 +73,8 @@ class Node(NodeBase, table=True):
     ss_applied_at: Optional[datetime] = Field(default=None)
     ss_apply_error: Optional[str] = Field(default=None)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ─── 请求 / 响应模型 ──────────────────────────────────────

@@ -75,7 +75,7 @@ def put_ss(node_id: int, payload: dict, session: Session = Depends(get_session))
     if not ok:
         raise HTTPException(400, err)
     node.ss_config = json.dumps(payload, ensure_ascii=False)
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
     return _ok({"config": _load_ss(node)})
@@ -116,7 +116,7 @@ async def apply_ss(node_id: int, session: Session = Depends(get_session)):
     if not push.ok:
         node.ss_apply_status = "failed"
         node.ss_apply_error = (push.error + "\n" + push.check_output)[:8000]
-        node.updated_at = datetime.utcnow()
+        node.updated_at = datetime.now(timezone.utc)
         session.add(node)
         session.commit()
         return _ok({
@@ -133,13 +133,13 @@ async def apply_ss(node_id: int, session: Session = Depends(get_session)):
 
     if reload_ok:
         node.ss_apply_status = "applied"
-        node.ss_applied_at = datetime.utcnow()
+        node.ss_applied_at = datetime.now(timezone.utc)
         node.ss_apply_error = None
     else:
         node.ss_apply_status = "failed"
         node.ss_apply_error = f"配置已推送，reload 失败: {reload_msg}"
 
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
 

@@ -159,7 +159,7 @@ async def update_node(node_id: int, payload: NodeUpdate, session: Session = Depe
         changes["ssh_private_key"] = _enc(changes["ssh_private_key"])
     for k, v in changes.items():
         setattr(node, k, v)
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
     session.refresh(node)
@@ -268,7 +268,7 @@ async def uninstall(
         node.arch = None
         node.config_schema = None
         node.deployed_at = None
-        node.updated_at = datetime.utcnow()
+        node.updated_at = datetime.now(timezone.utc)
         session.add(node)
         session.commit()
         session.refresh(node)
@@ -299,7 +299,7 @@ def deploy(node_id: int, session: Session = Depends(get_session)):
         node.agent_token = uuid.uuid4().hex
 
     node.deploy_status = "deploying"
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
 
@@ -307,7 +307,7 @@ def deploy(node_id: int, session: Session = Depends(get_session)):
     result = deploy_node(node, agent_endpoint)
 
     node.deploy_log = result.log or (result.error or "")
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
 
     if result.ok:
         node.deploy_status = "deployed"
@@ -349,7 +349,7 @@ def refresh_geoip(node_id: int, session: Session = Depends(get_session)):
     if not cc:
         return _err("GeoIP 查询失败，请检查网络或手动填写")
     node.country = cc
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
     return _ok({"country": cc})
@@ -393,7 +393,7 @@ def reset_deploy_status(node_id: int, session: Session = Depends(get_session)):
 
     node.deploy_status = "failed"
     node.deploy_log = (node.deploy_log or "") + "\n[用户强制重置] 部署状态从 deploying 重置为 failed"
-    node.updated_at = datetime.utcnow()
+    node.updated_at = datetime.now(timezone.utc)
     session.add(node)
     session.commit()
     session.refresh(node)

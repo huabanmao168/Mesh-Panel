@@ -1,6 +1,5 @@
 """节点卸载：SSH 进去停服务、删 unit、清目录。"""
 import json
-import re
 from dataclasses import dataclass
 from typing import Optional
 

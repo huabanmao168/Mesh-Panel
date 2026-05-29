@@ -42,7 +42,7 @@ def _setting_set(s: Session, key: str, value: str) -> None:
     row = s.get(Setting, key)
     if row:
         row.value = value
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.now(timezone.utc)
     else:
         row = Setting(key=key, value=value)
     s.add(row)
@@ -91,8 +91,8 @@ def _verify_pwd(pwd: str, hashed: str) -> bool:
 def _make_token(username: str) -> str:
     payload = {
         "sub": username,
-        "exp": datetime.utcnow() + TOKEN_TTL,
-        "iat": datetime.utcnow(),
+        "exp": datetime.now(timezone.utc) + TOKEN_TTL,
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, jwt_secret(), algorithm=JWT_ALG)
 
