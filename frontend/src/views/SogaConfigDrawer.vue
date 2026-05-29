@@ -415,7 +415,12 @@ const defaultProbeHint =
   'domain:cp.cloudflare.com\ndomain:connectivitycheck.gstatic.com\ndomain:www.gstatic.com\n…每行一条 · domain:/geosite:/geoip: 前缀'
 
 const winW = ref(window.innerWidth)
-window.addEventListener('resize', () => (winW.value = window.innerWidth))
+const _onResize = () => (winW.value = window.innerWidth)
+window.addEventListener('resize', _onResize)
+
+import { onBeforeUnmount } from 'vue'
+onBeforeUnmount(() => { window.removeEventListener('resize', _onResize) })
+
 const drawerSize = computed(() => winW.value < 720 ? '94%' : '560px')
 
 const probeRulesCount = computed(

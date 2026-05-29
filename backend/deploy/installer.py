@@ -15,8 +15,8 @@ from ssh.client import _load_pkey
 from security.crypto import decrypt
 from deploy.scripts import INSTALL_SH
 
-DEPLOY_TIMEOUT = 600  # 总耗时墙钟超时(秒) — 10 分钟硬上限
-DEPLOY_IDLE_TIMEOUT = 180  # 静默超时(秒) — 3 分钟没任何输出视为卡死
+DEPLOY_TIMEOUT = 900  # 总耗时墙钟超时(秒) — 15 分钟硬上限(慢链路首次下载 sing-box 需要)
+DEPLOY_IDLE_TIMEOUT = 240  # 静默超时(秒) — 4 分钟没任何输出视为卡死
 LOG_MAX_BYTES = 16 * 1024
 RESULT_MARKER = "---MESH-PANEL-RESULT---"
 

@@ -103,7 +103,8 @@ const original = ref('')
 const dirty = computed(() => text.value !== original.value)
 
 const winW = ref(window.innerWidth)
-window.addEventListener('resize', () => { winW.value = window.innerWidth })
+const _onResize = () => { winW.value = window.innerWidth }
+window.addEventListener('resize', _onResize)
 const drawerSize = computed(() => winW.value < 720 ? '94%' : '640px')
 
 // CodeMirror 配色 — 跟之前的色板一致
@@ -190,7 +191,10 @@ watch(visible, async (v) => {
   }
 })
 
-onBeforeUnmount(() => { view?.destroy(); view = null })
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', _onResize)
+  view?.destroy(); view = null
+})
 
 async function open(id) {
   instanceId.value = id

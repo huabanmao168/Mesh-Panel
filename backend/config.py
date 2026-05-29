@@ -66,6 +66,18 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "app.db"
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
+# DB 文件含 JWT secret + bcrypt hash + 加密凭据,收紧权限
+def _secure_db_permissions():
+    """确保 data 目录和 db 文件仅启动用户可读写。"""
+    try:
+        os.chmod(DATA_DIR, 0o700)
+        if DB_PATH.exists():
+            os.chmod(DB_PATH, 0o600)
+    except (PermissionError, OSError):
+        pass  # 容器/非 owner 场景下静默跳过
+
+_secure_db_permissions()
+
 # --- 只读资源路径 ---------------------------------------------------
 FRONTEND_DIST = RESOURCE_ROOT / "frontend" / "dist"
 

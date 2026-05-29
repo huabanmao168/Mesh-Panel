@@ -69,6 +69,14 @@ def jwt_secret() -> str:
     return _JWT_SECRET_CACHE
 
 
+def _rotate_jwt_secret(session: Session) -> None:
+    """旋转 JWT secret — 改密后让所有旧 token 立即失效。"""
+    global _JWT_SECRET_CACHE
+    new_secret = secrets.token_urlsafe(48)
+    _setting_set(session, K_JWT_SECRET, new_secret)
+    _JWT_SECRET_CACHE = new_secret
+
+
 def _hash_pwd(pwd: str) -> str:
     return bcrypt.hashpw(pwd.encode(), bcrypt.gensalt()).decode()
 
@@ -165,7 +173,7 @@ def auth_me(request: Request, session: Session = Depends(get_session)):
 
 
 @router.post("/change-password")
-def change_password(payload: ChangePwdPayload, request: Request, session: Session = Depends(get_session)):
+def change_password(payload: ChangePwdPayload, request: Request, response: Response, session: Session = Depends(get_session)):
     user = _require_user(request)
     h = _setting_get(session, K_PWD_HASH)
     if not h or not _verify_pwd(payload.old_password, h):
@@ -177,7 +185,12 @@ def change_password(payload: ChangePwdPayload, request: Request, session: Sessio
     _setting_set(session, K_PWD_HASH, _hash_pwd(payload.new_password))
     # 清除"必须改密"标志
     _setting_set(session, K_MUST_CHANGE, "0")
+    # 旋转 JWT secret — 让所有旧 session 立即失效
+    _rotate_jwt_secret(session)
     session.commit()
+    # 给当前用户重新签发 cookie（否则自己也被踢）
+    token = _make_token(user)
+    _set_cookie(response, token)
     return {"ok": True, "data": {"username": user}}
 
 
