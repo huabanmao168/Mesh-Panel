@@ -106,20 +106,20 @@ download_binary() {
   # 先下到临时文件再原子替换,避免覆盖中途崩了
   curl -fsSL --retry 3 -o "${BINARY_PATH}.new" "$url" \
     || die "下载失败: $url"
-  # sha256 校验(release 同时发布 .sha256 文件)
-  if curl -fsSL --retry 2 -o "${BINARY_PATH}.new.sha256" "$sha_url" 2>/dev/null; then
-    local expected actual
-    expected=$(awk '{print $1}' "${BINARY_PATH}.new.sha256")
-    actual=$(sha256sum "${BINARY_PATH}.new" | awk '{print $1}')
-    rm -f "${BINARY_PATH}.new.sha256"
-    if [[ "$expected" != "$actual" ]]; then
-      rm -f "${BINARY_PATH}.new"
-      die "sha256 校验失败! 文件可能被篡改。expected=${expected} actual=${actual}"
-    fi
-    ok "sha256 校验通过"
-  else
-    warn "未找到 .sha256 文件,跳过校验"
+  # sha256 校验(release 必须同时发布 .sha256;缺失=异常,硬失败)
+  if ! curl -fsSL --retry 2 -o "${BINARY_PATH}.new.sha256" "$sha_url"; then
+    rm -f "${BINARY_PATH}.new" "${BINARY_PATH}.new.sha256"
+    die "sha256 文件下载失败: $sha_url (release 必须配套发布,缺失视为异常)"
   fi
+  local expected actual
+  expected=$(awk '{print $1}' "${BINARY_PATH}.new.sha256")
+  actual=$(sha256sum "${BINARY_PATH}.new" | awk '{print $1}')
+  rm -f "${BINARY_PATH}.new.sha256"
+  if [[ "$expected" != "$actual" ]]; then
+    rm -f "${BINARY_PATH}.new"
+    die "sha256 校验失败! 文件可能被篡改。expected=${expected} actual=${actual}"
+  fi
+  ok "sha256 校验通过"
   chmod +x "${BINARY_PATH}.new"
   mv -f "${BINARY_PATH}.new" "$BINARY_PATH"
   # 清理老版本 (<=v2.0.1) 残留的 VERSION 文件,新版本由二进制 --version 提供
@@ -157,6 +157,14 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 UMask=0077
+# 文件系统加固:只读根 + 只允许写数据目录(跑 root 时这条最有用)
+ProtectSystem=strict
+ReadWritePaths=${INSTALL_DIR}
+# 限制 socket 家族,阻止瞎听 unix/netlink 之外的怪东西
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
 LimitNOFILE=65535
 StandardOutput=journal
 StandardError=journal

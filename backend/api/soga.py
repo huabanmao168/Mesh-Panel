@@ -507,14 +507,15 @@ def delete_instance(instance_id: int, session: Session = Depends(get_session)):
     if inst.enabled:
         raise HTTPException(400, "实例仍存活,请先在节点删除对应 /etc/soga/<folder>/ 目录并重新扫描")
 
-    # 级联清:routes -> route_outs -> instance
-    old_routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == instance_id)).all()
-    for r in old_routes:
-        for o in session.exec(select(SogaRouteOut).where(SogaRouteOut.route_id == r.id)).all():
-            session.delete(o)
-        session.delete(r)
+    # 级联清:routes -> route_outs -> instance(全 raw SQL,绕开 ORM autoflush 的 FK 顺序问题,与 scan 保持一致)
     folder = inst.folder_name
-    session.delete(inst)
+    conn = session.connection()
+    conn.execute(
+        text("DELETE FROM soga_route_outs WHERE route_id IN (SELECT id FROM soga_routes WHERE instance_id = :iid)"),
+        {"iid": instance_id},
+    )
+    conn.execute(text("DELETE FROM soga_routes WHERE instance_id = :iid"), {"iid": instance_id})
+    conn.execute(text("DELETE FROM soga_instances WHERE id = :iid"), {"iid": instance_id})
     session.commit()
     return {"ok": True, "deleted": {"id": instance_id, "folder_name": folder}}
 

@@ -517,10 +517,15 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 					OSPretty:  osPrettyOnce,
 				})
 			}
-			prevRx, prevTx = rx, tx
-			prevTotal, prevIdle = cpuTotal, cpuIdle
+			// 网卡读失败不更新 prev,避免下次恢复后算出假尖峰
+			if errN == nil {
+				prevRx, prevTx = rx, tx
+			}
+			if errC == nil {
+				prevTotal, prevIdle = cpuTotal, cpuIdle
+			}
 			prevTs = now
-			hasPrev = true
+			hasPrev = (errN == nil && errC == nil)
 		}
 	}
 }
