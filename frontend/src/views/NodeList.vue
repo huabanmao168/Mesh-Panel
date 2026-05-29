@@ -596,12 +596,17 @@ async function onDragEnd(evt) {
   }
 }
 
+let _metricsInflight = false
 async function loadMetrics() {
+  if (_metricsInflight) return
+  _metricsInflight = true
   try {
     const resp = await nodeApi.metrics()
     metrics.value = resp.data || {}
   } catch {
     /* 静默 */
+  } finally {
+    _metricsInflight = false
   }
 }
 
@@ -773,6 +778,8 @@ async function uninstallNode(row) {
 }
 
 async function deployNode(row) {
+  // 防止并发双击
+  if (row._deploying || row.deploy_status === 'deploying') return
   if (row.deploy_status === 'deployed') {
     try {
       await ElMessageBox.confirm(`重新部署?将覆盖 ${svcLabelFor(row.kind)} 并重启`, '确认重新部署', { type: 'warning' })
@@ -852,7 +859,7 @@ onMounted(() => {
   }).catch(() => {})
   window.addEventListener('resize', onResize)
   timer = setInterval(() => {
-    if (!loading.value && !saving.value) load(true)
+    if (!loading.value && !saving.value && !dialogOpen.value && !detailOpen.value) load(true)
   }, 5000)
   metricsTimer = setInterval(loadMetrics, 2000)
 })

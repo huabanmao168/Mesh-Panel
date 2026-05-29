@@ -29,7 +29,25 @@ http.interceptors.response.use(
     if (err.config?._suppressToast) {
       return Promise.reject(err)
     }
-    const msg = err.response?.data?.detail || err.response?.data?.error || err.message || '网络错误'
+    // 按状态码 / 错误类型给用户友好文案
+    const status = err.response?.status
+    const serverMsg = err.response?.data?.detail || err.response?.data?.error
+    let msg
+    if (serverMsg) {
+      msg = serverMsg
+    } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      msg = '请求超时，请稍后重试'
+    } else if (!err.response) {
+      msg = '网络连接失败，请检查网络'
+    } else if (status === 403) {
+      msg = '无权限执行此操作'
+    } else if (status === 404) {
+      msg = '请求的资源不存在'
+    } else if (status >= 500) {
+      msg = '服务端异常，请稍后重试'
+    } else {
+      msg = err.message || '请求失败'
+    }
     ElMessage.error(msg)
     return Promise.reject(err)
   },

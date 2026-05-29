@@ -284,8 +284,18 @@ async function save(thenApply) {
     await http.put(`/nodes/${nodeId.value}/ss-config`, form)
     ElMessage.success('已保存')
     originalProtocol.value = form.protocol
-    if (thenApply) await apply()
-    else visible.value = false
+    if (thenApply) {
+      try {
+        await ElMessageBox.confirm(
+          '应用配置后 sing-box 会 reload，当前连接的客户端可能短暂断线。确认应用？',
+          '确认应用',
+          { confirmButtonText: '应用', cancelButtonText: '稍后', type: 'warning' },
+        )
+      } catch { saving.value = false; return }
+      await apply()
+    } else {
+      visible.value = false
+    }
   } catch (e) {
     // 拦截器已 toast
   } finally {

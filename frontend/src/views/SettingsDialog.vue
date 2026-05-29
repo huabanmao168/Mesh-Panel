@@ -247,13 +247,16 @@ async function pushAll() {
     }
     let okCount = 0
     const failed = []
-    for (const n of deployed) {
-      try {
-        const r = await nodeApi.redeployAgentConfig(n.id)
-        if (r.data.success) okCount += 1
-        else failed.push(`${n.name}: ${r.data.message}`)
-      } catch (e) {
-        failed.push(`${n.name}: ${e.message}`)
+    const results = await Promise.allSettled(
+      deployed.map((n) => nodeApi.redeployAgentConfig(n.id).then((r) => ({ n, r })))
+    )
+    for (const res of results) {
+      if (res.status === 'fulfilled') {
+        const { n, r } = res.value
+        if (r.data?.success) okCount += 1
+        else failed.push(`${n.name}: ${r.data?.message || '未知错误'}`)
+      } else {
+        failed.push(res.reason?.message || '推送失败')
       }
     }
     if (failed.length === 0) {
