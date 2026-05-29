@@ -138,6 +138,9 @@ def _do_scan_inner(node_id: int, session: Session):
 
         # 重建路由树(全删全建,简单粗暴)
         # 用 raw SQL bulk delete 绕开 ORM autoflush + SQLite FK 顺序坑。
+        # 先 flush pending ORM 变更 + expire 缓存,避免 commit 时 ORM 与 raw SQL 冲突
+        session.flush()
+        session.expire_all()
         # 步骤1: 先清 DB 里所有指向"要删 routes"的 outs(覆盖当前 instance)
         # 步骤2: 清全局孤儿 outs(防御历史脏数据,route_id 指向已不存在的 route)
         # 步骤3: 再删 routes
@@ -152,6 +155,8 @@ def _do_scan_inner(node_id: int, session: Session):
         session.exec(text(
             "DELETE FROM soga_routes WHERE instance_id = :iid"
         ).bindparams(iid=inst.id))
+        # 清 ORM 缓存,防止 commit 时尝试 flush 已被 raw SQL 删除的对象
+        session.expire_all()
 
         for pos, route in enumerate(s["routes"]):
             # 系统探活路由不入库:新版统一由面板按 node.soga_system_probe 自动注入
