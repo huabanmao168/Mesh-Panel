@@ -199,7 +199,7 @@ async function save() {
     }
     const r = await http.put(`/soga/instances/${instance.value.id}/routes`, payload)
     if (r.mode === 'http') {
-      ElMessage.success(`已保存 · soga 将在 1 分钟内自动拉取`)
+      ElMessage.success(`已保存 · Soga 将在 1 分钟内自动拉取`)
     } else {
       ElMessage.success(`已推送 (${r.bytes} 字节)`)
     }

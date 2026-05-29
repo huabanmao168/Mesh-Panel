@@ -308,7 +308,7 @@ async function pushOne(inst) {
 async function restartOne(inst) {
   if (restartingId.value) return
   try {
-    await ElMessageBox.confirm(`重启 soga 实例 ${inst.folder_name}?`, '重启实例', { type: 'warning' })
+    await ElMessageBox.confirm(`重启 Soga 实例 ${inst.folder_name}?`, '重启实例', { type: 'warning' })
   } catch { return }
   restartingId.value = inst.id
   try {
@@ -390,7 +390,7 @@ async function applySource(inst) {
     inst.routes_token = r.routes_token
     sourceDraft.value[inst.id] = r.route_source
     if (r.restarted) {
-      ElMessage.success(`已切换到「${draft === 'http' ? 'HTTP 拉取' : '本地文件'}」并重启 soga`)
+      ElMessage.success(`已切换到「${draft === 'http' ? 'HTTP 拉取' : '本地文件'}」并重启 Soga`)
     } else {
       ElMessage.warning(`已切换但重启失败: ${r.restart_output || '未知错误'}`)
     }

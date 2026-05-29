@@ -237,7 +237,7 @@ async function save() {
     const r = await http.put(`/soga/instances/${instanceId.value}/conf`, { text: text.value })
     original.value = text.value
     if (r?.restarted === false) {
-      ElMessage.warning(`已保存,但 soga restart 失败: ${r.restart_output || '未知错误'}`)
+      ElMessage.warning(`已保存,但 Soga restart 失败: ${r.restart_output || '未知错误'}`)
     } else {
       ElMessage.success('已保存并重启')
     }

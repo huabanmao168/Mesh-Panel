@@ -108,7 +108,7 @@
                   {{ kindLabel(row.kind) }}
                 </span>
                 <img v-if="row.country" class="flag" :src="`https://flagcdn.com/w40/${row.country}.png`" :title="row.country.toUpperCase()" :alt="row.country" />
-                {{ row.name }}
+                <span class="node-name" :title="row.name">{{ row.name }}</span>
               </div>
               <div v-if="metrics[row.id]?.cpu_model || metrics[row.id]?.os_pretty" class="subtitle" :title="[metrics[row.id]?.cpu_model, metrics[row.id]?.os_pretty].filter(Boolean).join(' · ')">
                 <span v-if="metrics[row.id]?.os_pretty" class="os-chip">{{ metrics[row.id].os_pretty }}</span>
@@ -131,7 +131,7 @@
 
         <div class="card-addr">
           <el-icon><Monitor /></el-icon>
-          <span class="host-text">{{ row.host }}</span>
+          <span class="host-text" :title="row.host">{{ row.host }}</span>
           <span v-if="metrics[row.id]?.iface" class="iface-chip">{{ metrics[row.id].iface }}</span>
         </div>
 
@@ -612,7 +612,7 @@ async function loadMetrics() {
 
 function fmtBps(bps) {
   // 速率显示统一按"字节/秒"，跟累计流量单位一致：Bps = bps / 8
-  const Bps = (bps || 0) / 8
+  const Bps = Math.max(0, bps || 0) / 8
   if (Bps < 1024) return `${Bps.toFixed(1)} B`
   const units = ['KB', 'MB', 'GB', 'TB']
   let v = Bps / 1024, i = 0
@@ -1012,6 +1012,7 @@ onBeforeUnmount(() => {
 }
 .card-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .name { font-weight: 600; color: #111827; font-size: 15px; }
+.node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
 .more-btn { padding: 4px 8px; }
 .card-addr {
   display: flex; align-items: center; gap: 6px;
