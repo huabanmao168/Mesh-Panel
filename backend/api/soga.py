@@ -137,51 +137,57 @@ def _do_scan_inner(node_id: int, session: Session):
             session.add(inst)
 
         # 重建路由树(全删全建,简单粗暴)
-        # 关键: 必须先 commit + expire_all 清掉 ORM identity map 里上次 scan 残留的
-        # SogaRoute / SogaRouteOut 对象,否则 raw SQL DELETE 后这些"孤儿对象"在下次
-        # flush 时会被 ORM 重新写入,触发 FK 违反。
+        # 全程 raw SQL,完全绕开 ORM identity map + autoflush 的坑
         session.commit()
         session.expire_all()
 
-        # raw SQL bulk delete 绕开 ORM autoflush + SQLite FK 顺序坑
-        iid = inst.id  # commit 后 inst.id 仍可用
-        session.exec(text(
-            "DELETE FROM soga_route_outs WHERE route_id IN "
-            "(SELECT id FROM soga_routes WHERE instance_id = :iid)"
-        ).bindparams(iid=iid))
-        session.exec(text(
-            "DELETE FROM soga_route_outs WHERE route_id NOT IN "
-            "(SELECT id FROM soga_routes)"
-        ))
-        session.exec(text(
-            "DELETE FROM soga_routes WHERE instance_id = :iid"
-        ).bindparams(iid=iid))
+        iid = inst.id
+        # 用底层 connection 直接跑,确保每条语句立即下到 DB
+        conn = session.connection()
+        # 关 FK 检查 → 删 routes + outs → 重开 FK
+        # 这是 SQLite 官方推荐的批量 cascade 删除做法
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        try:
+            conn.exec_driver_sql(
+                "DELETE FROM soga_route_outs WHERE route_id IN "
+                "(SELECT id FROM soga_routes WHERE instance_id = ?)",
+                (iid,),
+            )
+            conn.exec_driver_sql(
+                "DELETE FROM soga_routes WHERE instance_id = ?",
+                (iid,),
+            )
+        finally:
+            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         session.commit()
 
+        # 用 raw SQL INSERT 新 routes + outs,跳过 ORM
         for pos, route in enumerate(s["routes"]):
-            # 系统探活路由不入库:新版统一由面板按 node.soga_system_probe 自动注入
             if route.get("is_system"):
                 continue
-            r = SogaRoute(
-                instance_id=iid,
-                position=pos,
-                rules=route.get("rules", []),
-                balance=route.get("balance"),
-                is_system=False,
-                is_fallback=route.get("is_fallback", False),
+            import json as _json2
+            result_route = conn.exec_driver_sql(
+                "INSERT INTO soga_routes (instance_id, position, rules, balance, is_system, is_fallback) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    iid,
+                    pos,
+                    _json2.dumps(route.get("rules", [])),
+                    route.get("balance"),
+                    0,
+                    1 if route.get("is_fallback", False) else 0,
+                ),
             )
-            session.add(r)
-            session.flush()  # 拿到 r.id,不 commit
+            new_route_id = result_route.lastrowid
             for opos, out in enumerate(route.get("outs", [])):
                 landing_id = _match_landing_node(session, out)
                 if landing_id is None:
                     continue
-                session.add(SogaRouteOut(
-                    route_id=r.id,
-                    position=opos,
-                    landing_node_id=landing_id,
-                ))
-        # 一个 instance 的 routes + outs 一次性 commit
+                conn.exec_driver_sql(
+                    "INSERT INTO soga_route_outs (route_id, position, landing_node_id) "
+                    "VALUES (?, ?, ?)",
+                    (new_route_id, opos, landing_id),
+                )
         session.commit()
 
         result.append({
