@@ -100,11 +100,26 @@ panel_port_in_db() {
 download_binary() {
   local version="$1"
   local url="https://github.com/${REPO}/releases/download/${version}/${ASSET_NAME}"
+  local sha_url="${url}.sha256"
   log "下载 ${ASSET_NAME} (${version})..."
   mkdir -p "$INSTALL_DIR"
   # 先下到临时文件再原子替换,避免覆盖中途崩了
   curl -fsSL --retry 3 -o "${BINARY_PATH}.new" "$url" \
     || die "下载失败: $url"
+  # sha256 校验(release 同时发布 .sha256 文件)
+  if curl -fsSL --retry 2 -o "${BINARY_PATH}.new.sha256" "$sha_url" 2>/dev/null; then
+    local expected actual
+    expected=$(awk '{print $1}' "${BINARY_PATH}.new.sha256")
+    actual=$(sha256sum "${BINARY_PATH}.new" | awk '{print $1}')
+    rm -f "${BINARY_PATH}.new.sha256"
+    if [[ "$expected" != "$actual" ]]; then
+      rm -f "${BINARY_PATH}.new"
+      die "sha256 校验失败! 文件可能被篡改。expected=${expected} actual=${actual}"
+    fi
+    ok "sha256 校验通过"
+  else
+    warn "未找到 .sha256 文件,跳过校验"
+  fi
   chmod +x "${BINARY_PATH}.new"
   mv -f "${BINARY_PATH}.new" "$BINARY_PATH"
   # 清理老版本 (<=v2.0.1) 残留的 VERSION 文件,新版本由二进制 --version 提供
@@ -117,7 +132,7 @@ write_systemd_unit() {
   cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
 Description=MeshPanel control panel
-After=network-online.target
+After=network-online.target local-fs.target
 Wants=network-online.target
 
 [Service]
@@ -127,9 +142,22 @@ Environment=MESH_PANEL_HOME=${INSTALL_DIR}
 ExecStart=${BINARY_PATH}
 Restart=on-failure
 RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
 # 允许绑定 80/443 低端口
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# 安全加固
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0077
+LimitNOFILE=65535
 StandardOutput=journal
 StandardError=journal
 
@@ -182,7 +210,7 @@ do_install() {
   if (( needs_install==1 )) || [[ "$CURRENT" != "$LATEST" ]]; then
     if (( needs_install==0 )); then
       warn "检测到版本不一致: ${CURRENT} → ${LATEST}"
-      read -p "覆盖安装? (y/N): " ans
+      read -r -p "覆盖安装? (y/N): " ans
       if [[ ! "$ans" =~ ^[Yy]$ ]]; then
         log "跳过二进制覆盖"
       else
@@ -235,7 +263,10 @@ do_install() {
   ok "MeshPanel ${LATEST} 安装完成"
   echo
   echo -e "  访问面板: ${c_cyan}http://${pub_ip}:${port}${c_reset}"
-  echo -e "  默认账号: ${c_bold}admin${c_reset} / ${c_bold}admin123456${c_reset}"
+  echo -e "  默认账号: ${c_bold}admin${c_reset}"
+  echo -e "  默认密码: 首次启动时随机生成,查看方式:"
+  echo -e "    ${c_cyan}cat ${INSTALL_DIR}/data/initial_password.txt${c_reset}"
+  echo -e "    或 ${c_cyan}journalctl -u ${SERVICE_NAME} | grep '密码'${c_reset}"
   echo -e "  ${c_yellow}登录后请立刻改密!${c_reset}"
   echo
   echo -e "  以后调出菜单只需输入: ${c_cyan}mesh${c_reset}"
@@ -256,9 +287,11 @@ do_update() {
     ok "已是最新版本"
     return
   fi
-  read -p "确认更新到 $LATEST? (y/N): " ans
+  read -r -p "确认更新到 $LATEST? (y/N): " ans
   [[ "$ans" =~ ^[Yy]$ ]] || { log "取消"; return; }
 
+  # 备份旧二进制,启动失败可回滚
+  cp -a "$BINARY_PATH" "${BINARY_PATH}.bak" 2>/dev/null || true
   download_binary "$LATEST"
   write_systemd_unit
   install_shortcut
@@ -269,8 +302,12 @@ do_update() {
   sleep 2
   if systemctl is-active --quiet ${SERVICE_NAME}; then
     ok "MeshPanel 已更新到 ${LATEST}"
+    rm -f "${BINARY_PATH}.bak"
   else
-    err "服务起不来,看 journalctl -u ${SERVICE_NAME} -n 30 --no-pager"
+    err "服务起不来,自动回滚到旧版本..."
+    mv -f "${BINARY_PATH}.bak" "$BINARY_PATH" 2>/dev/null || true
+    systemctl restart ${SERVICE_NAME}.service 2>/dev/null || true
+    err "已回滚。看日志: journalctl -u ${SERVICE_NAME} -n 30 --no-pager"
   fi
 }
 
@@ -278,8 +315,8 @@ do_update() {
 do_uninstall() {
   warn "即将卸载 MeshPanel: 停止服务、删除 ${INSTALL_DIR}、移除 systemd unit"
   warn "节点不会自动卸载,如需清理节点请先在面板里挨个点'卸载'"
-  read -p "是否同时删除数据 (data/)? 删了节点+证书+密钥全没 [y/N]: " del_data
-  read -p "输入 yes 确认卸载: " ans
+  read -r -p "是否同时删除数据 (data/)? 删了节点+证书+密钥全没 [y/N]: " del_data
+  read -r -p "输入 yes 确认卸载: " ans
   [[ "$ans" == "yes" ]] || { log "取消"; return; }
 
   log "停止并禁用服务..."
@@ -312,7 +349,7 @@ do_change_port() {
   local cur new
   cur=$(panel_port_in_db)
   echo -e "当前面板端口: ${c_bold}${cur}${c_reset}"
-  read -p "输入新端口 (1-65535,回车取消): " new
+  read -r -p "输入新端口 (1-65535,回车取消): " new
   [[ -z "$new" ]] && { log "取消"; return; }
   [[ "$new" =~ ^[0-9]+$ ]] || die "端口必须是数字"
   (( new >= 1 && new <= 65535 )) || die "端口范围 1-65535"
@@ -323,17 +360,21 @@ do_change_port() {
     # 看是不是 meshpanel 自己占的(改端口前它还在跑旧端口,所以新端口被占就是别人占的)
     warn "端口 ${new} 已被其它进程占用:"
     ss -tnlp 2>/dev/null | grep -E ":${new}\b" || true
-    read -p "仍要使用? (y/N): " ans
+    read -r -p "仍要使用? (y/N): " ans
     [[ "$ans" =~ ^[Yy]$ ]] || { log "取消"; return; }
   fi
+
+  # 先停服务再写库,避免 SQLite busy
+  log "停止服务..."
+  systemctl stop ${SERVICE_NAME}.service 2>/dev/null || true
 
   log "写入数据库..."
   sqlite3 "$db" "INSERT INTO settings(key,value) VALUES('panel_port','${new}') \
     ON CONFLICT(key) DO UPDATE SET value=excluded.value;" \
     || die "sqlite3 写入失败"
 
-  log "重启服务..."
-  systemctl restart ${SERVICE_NAME}.service
+  log "启动服务..."
+  systemctl start ${SERVICE_NAME}.service
   sleep 2
   if curl -fsS "http://127.0.0.1:${new}/api/health" >/dev/null 2>&1; then
     ok "端口已改为 ${new},健康检查通过"
@@ -392,7 +433,7 @@ menu() {
   "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
   "$c_bold" "$c_reset" "$c_bold" "$c_reset" "$c_bold" "$c_reset" \
   "$c_bold" "$c_reset"
-    read -p "请选择 [0-9]: " choice
+    read -r -p "请选择 [0-9]: " choice
     echo
     case "$choice" in
       1) do_install ;;
@@ -408,7 +449,7 @@ menu() {
       *) warn "无效选择" ;;
     esac
     echo
-    read -p "回车返回菜单..." _
+    read -r -p "回车返回菜单..." _
   done
 }
 
@@ -423,9 +464,10 @@ do_change_port_noninteractive() {
   ensure_sqlite3
   local cur; cur=$(panel_port_in_db)
   [[ "$new" == "$cur" ]] && { ok "端口未变 (${cur})"; return; }
+  systemctl stop ${SERVICE_NAME}.service 2>/dev/null || true
   sqlite3 "$db" "INSERT INTO settings(key,value) VALUES('panel_port','${new}') \
     ON CONFLICT(key) DO UPDATE SET value=excluded.value;" || die "sqlite3 写入失败"
-  systemctl restart ${SERVICE_NAME}.service
+  systemctl start ${SERVICE_NAME}.service
   sleep 2
   if curl -fsS "http://127.0.0.1:${new}/api/health" >/dev/null 2>&1; then
     ok "端口 ${cur} → ${new}"
