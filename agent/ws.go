@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"sync"
@@ -14,9 +15,11 @@ import (
 
 const (
 	heartbeatInterval = 10 * time.Second
-	reconnectDelay    = 5 * time.Second
 	writeTimeout      = 10 * time.Second
 	readTimeout       = 30 * time.Second
+	// 重连退避参数
+	reconnectMin = 1 * time.Second
+	reconnectMax = 60 * time.Second
 )
 
 type msgIn struct {
@@ -31,8 +34,9 @@ type pingMsg struct {
 	Uptime int64  `json:"uptime"`
 }
 
-// runLoop 永不退出，断线后重连
+// runLoop 永不退出，断线后指数退避重连
 func runLoop(wsURL string, startedAt time.Time, stop chan os.Signal) {
+	delay := reconnectMin
 	for {
 		select {
 		case <-stop:
@@ -43,14 +47,24 @@ func runLoop(wsURL string, startedAt time.Time, stop chan os.Signal) {
 		log.Printf("dialing...")
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
-			log.Printf("dial failed: %v; retry in %s", err, reconnectDelay)
-			time.Sleep(reconnectDelay)
+			// 加 ±30% jitter 避免 thundering herd
+			jitter := time.Duration(float64(delay) * (0.7 + rand.Float64()*0.6))
+			log.Printf("dial failed: %v; retry in %s", err, jitter)
+			time.Sleep(jitter)
+			// 指数退避,上限 60s
+			delay *= 2
+			if delay > reconnectMax {
+				delay = reconnectMax
+			}
 			continue
 		}
 		log.Printf("connected")
+		delay = reconnectMin // 连接成功,重置退避
 		serveConn(conn, startedAt)
-		log.Printf("disconnected, reconnect in %s", reconnectDelay)
-		time.Sleep(reconnectDelay)
+		// 断开后从最小延迟开始(刚断不一定是服务端挂,可能只是网络抖动)
+		jitter := time.Duration(float64(reconnectMin) * (0.7 + rand.Float64()*0.6))
+		log.Printf("disconnected, reconnect in %s", jitter)
+		time.Sleep(jitter)
 	}
 }
 
