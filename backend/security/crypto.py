@@ -28,9 +28,37 @@ _KEY_PATH = _DATA_DIR / "secret.key"
 _fernet: Optional[Fernet] = None
 
 
+class FernetKeyMissing(RuntimeError):
+    """DB 中已有密文但 secret.key 丢失 — 拒绝启动,避免静默生成新 key 让所有旧密文报废。"""
+
+
+def _db_has_ciphertext() -> bool:
+    """检查 nodes 表是否已存在 enc:v1: 密文。容错:DB 还没建好时返回 False。"""
+    try:
+        from sqlmodel import Session, select
+        from database import engine
+        from models.node import Node
+        with Session(engine) as s:
+            for n in s.exec(select(Node)).all():
+                if (n.ssh_password and n.ssh_password.startswith(PREFIX)) or \
+                   (n.ssh_private_key and n.ssh_private_key.startswith(PREFIX)):
+                    return True
+    except Exception:
+        # DB schema 还没建好(首启)或读不出,按"无密文"处理
+        return False
+    return False
+
+
 def _load_or_create_key() -> bytes:
     if _KEY_PATH.exists():
         return _KEY_PATH.read_bytes().strip()
+    # key 不存在但 DB 已有密文 — 这是灾难场景,绝不能静默生成新 key
+    if _db_has_ciphertext():
+        raise FernetKeyMissing(
+            f"加密密钥 {_KEY_PATH} 丢失,但数据库中已存在加密的 SSH 凭据。"
+            f"生成新密钥会导致所有旧凭据无法解密。请恢复原密钥文件,"
+            f"或先备份数据库后手动删除 nodes 表中的 ssh_password / ssh_private_key 字段重新填写。"
+        )
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     key = Fernet.generate_key()
     _KEY_PATH.write_bytes(key)

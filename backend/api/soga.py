@@ -5,6 +5,7 @@
 - GET  /api/soga/{node_id}/instances  列出已扫描的实例(从 DB 取)
 - GET  /api/soga/instances/{id}/routes 拉某个实例的完整路由树
 """
+import logging
 import threading
 from typing import Optional
 from datetime import datetime, timezone
@@ -18,6 +19,9 @@ from models.node import Node
 from models.soga import SogaInstance, SogaRoute, SogaRouteOut
 from deploy.soga_scan import scan_soga_instances, ScanError
 from deploy.soga_push import SYSTEM_PROBE_RULES as SYSTEM_PROBE_DEFAULTS
+
+
+log = logging.getLogger(__name__)
 
 
 # 每个 node_id 一把锁: 同节点的 scan 串行执行,防止并发 scan
@@ -100,6 +104,7 @@ def _do_scan_inner(node_id: int, session: Session):
     except ScanError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        log.exception("soga scan 失败 node_id=%s", node_id)
         raise HTTPException(500, f"扫描失败: {type(e).__name__}: {e}")
 
     seen_folders = {s["folder"] for s in scanned}
@@ -360,6 +365,7 @@ def push_all_instances(node_id: int, session: Session = Depends(get_session)):
         except SogaPushError as e:
             failed.append({"folder": inst.folder_name, "error": str(e)})
         except Exception as e:  # noqa: BLE001
+            log.exception("soga push_all 单实例失败 folder=%s", inst.folder_name)
             failed.append({"folder": inst.folder_name, "error": f"{type(e).__name__}: {e}"})
 
     return {
@@ -386,6 +392,7 @@ def get_instance_conf(instance_id: int, session: Session = Depends(get_session))
     except SogaPushError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        log.exception("read_conf 失败 folder=%s", inst.folder_name)
         raise HTTPException(500, f"读取失败: {type(e).__name__}: {e}")
     return {"ok": True, "folder": inst.folder_name, "path": f"/etc/soga/{inst.folder_name}/soga.conf", "text": text}
 
@@ -409,6 +416,7 @@ def put_instance_conf(instance_id: int, payload: dict, session: Session = Depend
     except SogaPushError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        log.exception("write_conf 失败 folder=%s", inst.folder_name)
         raise HTTPException(500, f"保存失败: {type(e).__name__}: {e}")
     # 写完自动重启
     restart_ok = True
@@ -419,6 +427,7 @@ def put_instance_conf(instance_id: int, payload: dict, session: Session = Depend
         restart_ok = False
         restart_msg = str(e)
     except Exception as e:  # noqa: BLE001
+        log.exception("restart_soga 失败 folder=%s", inst.folder_name)
         restart_ok = False
         restart_msg = f"{type(e).__name__}: {e}"
     return {"ok": True, "restarted": restart_ok, "restart_output": restart_msg}
@@ -440,6 +449,7 @@ def restart_instance(instance_id: int, session: Session = Depends(get_session)):
     except SogaPushError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        log.exception("restart endpoint 失败 folder=%s", inst.folder_name)
         raise HTTPException(500, f"重启失败: {type(e).__name__}: {e}")
     return {"ok": True, "output": out}
 
@@ -524,6 +534,7 @@ def push_single_instance(instance_id: int, session: Session = Depends(get_sessio
     except SogaPushError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
+        log.exception("push routes 失败 folder=%s", inst.folder_name)
         raise HTTPException(500, f"推送失败: {type(e).__name__}: {e}")
     return {"ok": True, "folder": inst.folder_name}
 
@@ -671,6 +682,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
     except SogaPushError as e:
         raise HTTPException(500, f"渲染失败: {e}")
     except Exception as e:
+        log.exception("render_routes_toml 失败 instance_id=%s", instance_id)
         raise HTTPException(500, f"渲染异常: {type(e).__name__}: {e}")
 
     is_http_mode = (inst.route_source or "file") == "http"
@@ -682,6 +694,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
         except SogaPushError as e:
             raise HTTPException(502, f"SSH 推送失败: {e}")
         except Exception as e:
+            log.exception("push routes SSH 异常 folder=%s", inst.folder_name)
             raise HTTPException(502, f"SSH 异常: {type(e).__name__}: {e}")
 
     # 推送成功(或 HTTP 模式跳过推送),开始写 DB
@@ -789,6 +802,7 @@ def set_route_source(instance_id: int, payload: dict, session: Session = Depends
         restart_ok = False
         restart_msg = str(e)
     except Exception as e:  # noqa: BLE001
+        log.exception("route_source 切换后重启失败 folder=%s", inst.folder_name)
         restart_ok = False
         restart_msg = f"{type(e).__name__}: {e}"
 
@@ -831,6 +845,7 @@ def serve_routes_toml(instance_id: int, token: str = "", session: Session = Depe
             system_probe_rules=probe_rules,
         )
     except Exception:
+        log.exception("serve_routes_toml 渲染失败 instance_id=%s folder=%s", inst.id, inst.folder_name)
         return Response(status_code=444)
     return PlainTextResponse(toml_text, media_type="application/toml")
 

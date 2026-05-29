@@ -21,20 +21,26 @@ from ws.agents import router as ws_router, sweep_offline_loop
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+    import sys
+    log = logging.getLogger(__name__)
     init_db()
-    # 首跑确保默认管理员存在(admin / admin123456)
+    # 首跑确保默认管理员存在
     try:
         ensure_default_admin()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("默认管理员初始化失败: %s", e)
+        log.exception("默认管理员初始化失败: %s", e)
     # 一次性把存量明文凭据升级为密文
+    # 失败必须退出 — 否则可能用错误的 key 加密新数据,污染存量密文
     try:
-        from security.crypto import migrate_plaintext_credentials
+        from security.crypto import migrate_plaintext_credentials, FernetKeyMissing
         migrate_plaintext_credentials()
+    except FernetKeyMissing as e:
+        log.critical("加密密钥丢失,拒绝启动:\n%s", e)
+        sys.exit(1)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("凭据加密迁移失败: %s", e)
+        log.critical("凭据加密迁移失败,拒绝启动: %s", e, exc_info=True)
+        sys.exit(1)
     sweep_task = asyncio.create_task(sweep_offline_loop())
     try:
         yield

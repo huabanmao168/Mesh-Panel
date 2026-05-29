@@ -30,6 +30,7 @@ JWT_ALG = "HS256"
 K_USERNAME = "admin_username"
 K_PWD_HASH = "admin_password_hash"
 K_JWT_SECRET = "jwt_secret"
+K_MUST_CHANGE = "admin_must_change_password"
 
 
 def _setting_get(s: Session, key: str) -> Optional[str]:
@@ -157,9 +158,10 @@ def auth_logout(response: Response):
 
 
 @router.get("/me")
-def auth_me(request: Request):
+def auth_me(request: Request, session: Session = Depends(get_session)):
     user = _require_user(request)
-    return {"ok": True, "data": {"username": user}}
+    must_change = _setting_get(session, K_MUST_CHANGE) == "1"
+    return {"ok": True, "data": {"username": user, "must_change_password": must_change}}
 
 
 @router.post("/change-password")
@@ -170,7 +172,11 @@ def change_password(payload: ChangePwdPayload, request: Request, session: Sessio
         raise HTTPException(401, "原密码错误")
     if len(payload.new_password) < 6:
         raise HTTPException(400, "新密码至少 6 位")
+    if payload.new_password == payload.old_password:
+        raise HTTPException(400, "新密码不能与原密码相同")
     _setting_set(session, K_PWD_HASH, _hash_pwd(payload.new_password))
+    # 清除"必须改密"标志
+    _setting_set(session, K_MUST_CHANGE, "0")
     session.commit()
     return {"ok": True, "data": {"username": user}}
 

@@ -224,7 +224,9 @@ async def uninstall(
         })
 
     # 正常路径：跑远端卸载
-    result = uninstall_node(node)
+    # uninstall_node 是同步 paramiko (~60s),必须切线程否则阻塞 event loop
+    import asyncio
+    result = await asyncio.to_thread(uninstall_node, node)
 
     # 不管成功失败，先踢 WS
     await disconnect_node(node_id)
