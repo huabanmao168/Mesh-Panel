@@ -212,7 +212,7 @@ func detectDefaultIface() string {
 			}
 		}
 	}
-	return "lo"
+	return ""
 }
 
 func listIfaces() ([]string, error) {
@@ -259,8 +259,14 @@ func readIfaceBytes(name string) (rx, tx uint64, err error) {
 		if len(fields) < 16 {
 			return 0, 0, fmt.Errorf("malformed /proc/net/dev line")
 		}
-		rx, _ = strconv.ParseUint(fields[0], 10, 64)
-		tx, _ = strconv.ParseUint(fields[8], 10, 64)
+		rx, err = strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse rx: %w", err)
+		}
+		tx, err = strconv.ParseUint(fields[8], 10, 64)
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse tx: %w", err)
+		}
 		return rx, tx, nil
 	}
 	return 0, 0, fmt.Errorf("iface %s not found", name)

@@ -23,7 +23,9 @@ jobs:
       - name: Build agent binaries
         run: |
           cd agent
-          make all VERSION=${GITHUB_REF_NAME#v}
+          VER="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || VER="0.0.0-dev-$(git rev-parse --short HEAD)"
+          make all VERSION=${VER}
           ls -lh ../backend/agent_dist/
 
       # --- Node: build frontend dist ---
@@ -55,6 +57,7 @@ jobs:
       - name: Inject version
         run: |
           VER="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || VER="0.0.0-dev-$(git rev-parse --short HEAD)"
           echo "__version__ = \"${VER}\"" > backend/version.py
           cat backend/version.py
 

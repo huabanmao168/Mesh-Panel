@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"os"
@@ -95,6 +96,8 @@ func serveConn(conn *websocket.Conn, startedAt time.Time) {
 					Uptime: int64(time.Since(startedAt).Seconds()),
 				}); err != nil {
 					log.Printf("ping failed: %v", err)
+					// 主动关闭连接，让读循环立刻感知到错误退出，而不是等 readTimeout
+					conn.Close()
 					return
 				}
 			}
@@ -122,7 +125,9 @@ func serveConn(conn *websocket.Conn, startedAt time.Time) {
 			setIface(m.Iface)
 			log.Printf("iface set to %q (effective: %q)", m.Iface, getIface())
 		case "cmd":
-			handleCmd(m.Action, sendJSON)
+			// 独立 goroutine，避免 systemctl 卡住阻塞读循环
+			action := m.Action
+			go handleCmd(action, sendJSON)
 		case "rpc":
 			// 不阻塞读循环,每个 RPC 独立 goroutine
 			rawCopy := append([]byte(nil), raw...)
@@ -142,29 +147,20 @@ type ackMsg struct {
 
 func handleCmd(action string, send func(any) error) {
 	log.Printf("cmd: %s", action)
-	var (
-		ok      bool
-		message string
-	)
+	var ok bool
+	var message string
+
 	switch action {
-	case "reload":
-		err := exec.Command("systemctl", "reload", "sing-box").Run()
+	case "reload", "restart":
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := exec.CommandContext(ctx, "systemctl", action, "sing-box").Run()
 		if err != nil {
-			ok = false
-			message = err.Error()
-		} else {
-			ok = true
-		}
-	case "restart":
-		err := exec.Command("systemctl", "restart", "sing-box").Run()
-		if err != nil {
-			ok = false
 			message = err.Error()
 		} else {
 			ok = true
 		}
 	default:
-		ok = false
 		message = "unknown action"
 	}
 	_ = send(ackMsg{Type: "ack", Action: action, Ok: ok, Message: message})
