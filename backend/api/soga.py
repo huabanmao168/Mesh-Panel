@@ -142,10 +142,10 @@ def _do_scan_inner(node_id: int, session: Session):
         session.expire_all()
 
         iid = inst.id
-        # 用底层 connection 直接跑,确保每条语句立即下到 DB
-        conn = session.connection()
         # 关 FK 检查 → 删 routes + outs → 重开 FK
         # 这是 SQLite 官方推荐的批量 cascade 删除做法
+        # 注意: 每次 commit 后 connection 会被关闭归还池,必须重新 session.connection()
+        conn = session.connection()
         conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
         try:
             conn.exec_driver_sql(
@@ -161,11 +161,12 @@ def _do_scan_inner(node_id: int, session: Session):
             conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         session.commit()
 
-        # 用 raw SQL INSERT 新 routes + outs,跳过 ORM
+        # 新建 routes + outs — commit 后 conn 已关闭,重新获取
+        conn = session.connection()
+        import json as _json2
         for pos, route in enumerate(s["routes"]):
             if route.get("is_system"):
                 continue
-            import json as _json2
             result_route = conn.exec_driver_sql(
                 "INSERT INTO soga_routes (instance_id, position, rules, balance, is_system, is_fallback) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
