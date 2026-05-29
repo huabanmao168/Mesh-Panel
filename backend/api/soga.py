@@ -78,12 +78,19 @@ def scan_instances(node_id: int, session: Session = Depends(get_session)):
     if not lock.acquire(blocking=False):
         raise HTTPException(409, "该节点正在扫描中,请等当前扫描完成")
     try:
-        return _do_scan(node_id, session)
+        with session.no_autoflush:
+            return _do_scan_inner(node_id, session)
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception:
+        session.rollback()
+        raise
     finally:
         lock.release()
 
 
-def _do_scan(node_id: int, session: Session):
+def _do_scan_inner(node_id: int, session: Session):
     node = _require_soga_node(session, node_id)
 
     try:
@@ -126,23 +133,20 @@ def _do_scan(node_id: int, session: Session):
 
         # 重建路由树(全删全建,简单粗暴)
         # 用 raw SQL bulk delete 绕开 ORM autoflush + SQLite FK 顺序坑。
-        # 先删子表 outs,再删父表 routes;一次性,同事务。
+        # 步骤1: 先清 DB 里所有指向"要删 routes"的 outs(覆盖当前 instance)
+        # 步骤2: 清全局孤儿 outs(防御历史脏数据,route_id 指向已不存在的 route)
+        # 步骤3: 再删 routes
         session.exec(text(
             "DELETE FROM soga_route_outs WHERE route_id IN "
             "(SELECT id FROM soga_routes WHERE instance_id = :iid)"
         ).bindparams(iid=inst.id))
-        # 顺手清孤儿 outs(防御历史脏数据)
         session.exec(text(
-            "DELETE FROM soga_route_outs WHERE route_id NOT IN (SELECT id FROM soga_routes)"
+            "DELETE FROM soga_route_outs WHERE route_id NOT IN "
+            "(SELECT id FROM soga_routes)"
         ))
         session.exec(text(
             "DELETE FROM soga_routes WHERE instance_id = :iid"
         ).bindparams(iid=inst.id))
-        # flush 让 ORM session 跟上 DB 状态,后面 add 新 route 才不会撞 stale 引用
-        session.flush()
-        # raw SQL DELETE 不会让 ORM identity map 失效,显式 expire 让缓存
-        # 里的旧 SogaRoute/SogaRouteOut 对象无效化
-        session.expire_all()
 
         for pos, route in enumerate(s["routes"]):
             # 系统探活路由不入库:新版统一由面板按 node.soga_system_probe 自动注入
