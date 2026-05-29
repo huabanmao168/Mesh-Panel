@@ -287,7 +287,6 @@ async function saveAlias(inst) {
     if (next) ElMessage.success('已保存别名')
     else ElMessage.success('已清除别名')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
     aliasSaving = false
     cancelAlias()
@@ -301,7 +300,6 @@ async function pushOne(inst) {
     await http.post(`/soga/instances/${inst.id}/push`)
     ElMessage.success(`已推送 ${inst.folder_name}`)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '推送失败')
   } finally {
     pushingId.value = null
   }
@@ -318,7 +316,6 @@ async function restartOne(inst) {
     if (data?.ok) ElMessage.success(`已重启 ${inst.folder_name}`)
     else ElMessage.warning(data?.output || '重启返回异常')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '重启失败')
   } finally {
     restartingId.value = null
   }
@@ -340,7 +337,6 @@ async function removeOne(inst) {
     // 从本地列表移除,不用整个重拉
     instances.value = instances.value.filter(x => x.id !== inst.id)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '删除失败')
   } finally {
     deletingId.value = null
   }
@@ -399,7 +395,6 @@ async function applySource(inst) {
       ElMessage.warning(`已切换但重启失败: ${r.restart_output || '未知错误'}`)
     }
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '切换失败')
   } finally {
     sourceBusy.value = null
   }
@@ -457,7 +452,7 @@ async function onDragEnd() {
     if (local) local.sort_order = idx * 10
   })
   try {
-    await http.put(`/soga/${node.value.id}/instances/order`, { ids })
+    await http.put(`/soga/${node.value.id}/instances/order`, { ids }, { _suppressToast: true })
   } catch (e) {
     ElMessage.error('排序保存失败: ' + (e?.response?.data?.detail || e.message))
   }
@@ -477,7 +472,7 @@ async function open(nodeId) {
   instances.value = []
   loadingNode.value = true
   try {
-    const r = await http.get(`/nodes/${nodeId}`)
+    const r = await http.get(`/nodes/${nodeId}`, { _suppressToast: true })
     node.value = r.data || r
   } catch {
     ElMessage.error('加载节点失败')
@@ -531,7 +526,6 @@ async function scan() {
     applyProbeFromResp(r)
     ElMessage.success(`已加载 ${instances.value.length} 个实例`)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '加载失败,请确认 SSH 可连')
   } finally {
     scanning.value = false
   }
@@ -557,7 +551,6 @@ async function saveProbeRules() {
     probeRulesText.value = systemProbeRules.value.join('\n')
     ElMessage.success('已保存 · 用「重新推送」下发到实例')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
     probeBusy.value = false
   }
@@ -579,7 +572,6 @@ async function resetProbeRules() {
     probeRulesText.value = systemProbeRules.value.join('\n')
     ElMessage.success('已恢复默认')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '操作失败')
   } finally {
     probeBusy.value = false
   }
@@ -602,7 +594,6 @@ async function pushAll() {
       ElMessage.success(`已推送 ${r.pushed} 个实例`)
     }
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '推送失败')
   } finally {
     pushingAll.value = false
   }

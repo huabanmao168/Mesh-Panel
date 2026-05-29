@@ -40,7 +40,7 @@
             <span v-for="(rule, i) in route.rules" :key="i" class="rule-chip">{{ rule }}</span>
           </div>
           <div v-else class="rules-edit">
-            <div v-for="(rule, i) in parsedRules" :key="i" class="rule-row">
+            <div v-for="(rule, i) in parsedRules" :key="rule._uid" class="rule-row">
               <el-select
                 v-model="rule.prefix"
                 size="small"
@@ -145,12 +145,13 @@ defineEmits(['remove'])
 const parsedRules = ref([])
 let lastSyncedJson = ''
 
+let _uidSeq = 0
 function parse(rules) {
   return rules.map(r => {
-    if (r === '*') return { prefix: 'domain', value: '*' }
+    if (r === '*') return { _uid: ++_uidSeq, prefix: 'domain', value: '*' }
     const idx = r.indexOf(':')
-    if (idx < 0) return { prefix: 'domain', value: r }
-    return { prefix: r.slice(0, idx), value: r.slice(idx + 1) }
+    if (idx < 0) return { _uid: ++_uidSeq, prefix: 'domain', value: r }
+    return { _uid: ++_uidSeq, prefix: r.slice(0, idx), value: r.slice(idx + 1) }
   })
 }
 
@@ -171,7 +172,7 @@ function syncRules() {
 }
 
 function addRule() {
-  parsedRules.value.push({ prefix: 'domain', value: '' })
+  parsedRules.value.push({ _uid: ++_uidSeq, prefix: 'domain', value: '' })
 }
 
 function removeRule(i) {

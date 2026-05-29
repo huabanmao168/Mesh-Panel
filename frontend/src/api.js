@@ -7,12 +7,16 @@ const http = axios.create({
   withCredentials: true,  // 带 cookie
 })
 
-// 401 时，触发全局事件让 App 切到登录页
+// 拦截器统一弹错误 toast。
+// 如果调用方自己想弹自定义文案,在 config 上设 _suppressToast: true 跳过此次。
+// 例: http.post(url, body, { _suppressToast: true }).catch(e => ElMessage.error('自定义...'))
 http.interceptors.response.use(
   (resp) => {
     const data = resp.data
     if (data && data.ok === false) {
-      ElMessage.error(data.error || '请求失败')
+      if (!resp.config?._suppressToast) {
+        ElMessage.error(data.error || '请求失败')
+      }
       return Promise.reject(new Error(data.error || '请求失败'))
     }
     return data
@@ -22,6 +26,9 @@ http.interceptors.response.use(
       window.dispatchEvent(new CustomEvent('auth:logout'))
       return Promise.reject(err)
     }
+    if (err.config?._suppressToast) {
+      return Promise.reject(err)
+    }
     const msg = err.response?.data?.detail || err.response?.data?.error || err.message || '网络错误'
     ElMessage.error(msg)
     return Promise.reject(err)
@@ -29,40 +36,41 @@ http.interceptors.response.use(
 )
 
 export const authApi = {
-  status: () => http.get('/auth/status'),
-  setup: (payload) => http.post('/auth/setup', payload),
-  login: (payload) => http.post('/auth/login', payload),
-  logout: () => http.post('/auth/logout'),
-  me: () => http.get('/auth/me'),
-  changePassword: (payload) => http.post('/auth/change-password', payload),
+  status: (opts) => http.get('/auth/status', opts),
+  setup: (payload, opts) => http.post('/auth/setup', payload, opts),
+  login: (payload, opts) => http.post('/auth/login', payload, opts),
+  logout: (opts) => http.post('/auth/logout', null, opts),
+  me: (opts) => http.get('/auth/me', opts),
+  changePassword: (payload, opts) => http.post('/auth/change-password', payload, opts),
 }
 
 export const systemApi = {
-  health: () => http.get('/health'),
+  health: (opts) => http.get('/health', opts),
 }
 
 export const nodeApi = {
-  list: () => http.get('/nodes'),
-  metrics: () => http.get('/nodes/metrics'),
-  create: (payload) => http.post('/nodes', payload),
-  update: (id, payload) => http.patch(`/nodes/${id}`, payload),
-  remove: (id) => http.delete(`/nodes/${id}`),
-  deploy: (id) => http.post(`/nodes/${id}/deploy`, null, { timeout: 620000 }),
-  deployReset: (id) => http.post(`/nodes/${id}/deploy/reset`),
-  deployLog: (id) => http.get(`/nodes/${id}/deploy/log`),
-  redeployAgentConfig: (id) => http.post(`/nodes/${id}/agent/redeploy-config`),
-  agentReload: (id) => http.post(`/nodes/${id}/agent/reload`),
-  uninstall: (id, payload) => http.post(`/nodes/${id}/uninstall`, payload, { timeout: 90000 }),
-  reorder: (ids) => http.put('/nodes/order', { ids }),
+  list: (opts) => http.get('/nodes', opts),
+  metrics: (opts) => http.get('/nodes/metrics', opts),
+  create: (payload, opts) => http.post('/nodes', payload, opts),
+  update: (id, payload, opts) => http.patch(`/nodes/${id}`, payload, opts),
+  remove: (id, opts) => http.delete(`/nodes/${id}`, opts),
+  deploy: (id, opts) => http.post(`/nodes/${id}/deploy`, null, { timeout: 620000, ...opts }),
+  deployReset: (id, opts) => http.post(`/nodes/${id}/deploy/reset`, null, opts),
+  deployLog: (id, opts) => http.get(`/nodes/${id}/deploy/log`, opts),
+  redeployAgentConfig: (id, opts) => http.post(`/nodes/${id}/agent/redeploy-config`, null, opts),
+  agentReload: (id, opts) => http.post(`/nodes/${id}/agent/reload`, null, opts),
+  uninstall: (id, payload, opts) => http.post(`/nodes/${id}/uninstall`, payload, { timeout: 90000, ...opts }),
+  reorder: (ids, opts) => http.put('/nodes/order', { ids }, opts),
 }
 
 export const settingsApi = {
-  get: () => http.get('/settings'),
-  update: (payload) => http.patch('/settings', payload),
-  uploadCert: (formData) =>
+  get: (opts) => http.get('/settings', opts),
+  update: (payload, opts) => http.patch('/settings', payload, opts),
+  uploadCert: (formData, opts) =>
     http.post('/settings/cert', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 30000,
+      ...opts,
     }),
 }
 

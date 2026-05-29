@@ -107,8 +107,8 @@ async function open(instanceId) {
   routes.value = []
   try {
     const [r1, r2] = await Promise.all([
-      http.get(`/soga/instances/${instanceId}/routes`),
-      http.get('/nodes'),
+      http.get(`/soga/instances/${instanceId}/routes`, { _suppressToast: true }),
+      http.get('/nodes', { _suppressToast: true }),
     ])
     instance.value = r1.instance
     routes.value = (r1.routes || []).map(normalize)
@@ -206,8 +206,7 @@ async function save() {
     original.value = JSON.stringify(routes.value)
     visible.value = false
   } catch (e) {
-    const msg = e?.response?.data?.detail || e?.message || '保存失败'
-    ElMessage.error(msg)
+    // 拦截器已弹错误 toast
   } finally {
     saving.value = false
   }

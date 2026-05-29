@@ -189,6 +189,7 @@ const saving = ref(false)
 const applying = ref(false)
 const previewing = ref(false)
 const previewVisible = ref(false)
+const previewCollapse = ref('')  // el-collapse v-model: 空='收起', 'preview'='展开'
 const previewJson = ref('')
 
 const nodeId = ref(null)
@@ -325,6 +326,7 @@ async function preview() {
     const resp = await http.get(`/nodes/${nodeId.value}/ss-config/preview`)
     previewJson.value = JSON.stringify(resp.data.singbox_config, null, 2)
     previewVisible.value = true
+    previewCollapse.value = 'preview'  // 自动展开预览面板
   } finally {
     previewing.value = false
   }

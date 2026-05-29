@@ -214,7 +214,6 @@ async function reload() {
     await nextTick()
     if (view) setDoc(text.value)
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
     loading.value = false
   }
@@ -239,7 +238,6 @@ async function save() {
       ElMessage.success('已保存并重启')
     }
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
     saving.value = false
   }

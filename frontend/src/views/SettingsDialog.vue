@@ -193,7 +193,7 @@ async function uploadCert() {
     const fd = new FormData()
     fd.append('cert', certFile.value)
     fd.append('key', keyFile.value)
-    const resp = await settingsApi.uploadCert(fd)
+    const resp = await settingsApi.uploadCert(fd, { _suppressToast: true })
     form.tls_cert_path = resp.data.tls_cert_path
     form.tls_key_path = resp.data.tls_key_path
     certFile.value = null
@@ -217,7 +217,7 @@ async function save(thenPush) {
       tls_enabled: form.tls_enabled_bool ? '1' : '0',
       panel_public_url: form.panel_public_url.trim().replace(/\/+$/, ''),
     }
-    await settingsApi.update(payload)
+    await settingsApi.update(payload, { _suppressToast: true })
     ElMessage.success('已保存')
     emit('saved')
   } catch (e) {

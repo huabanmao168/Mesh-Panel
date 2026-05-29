@@ -182,13 +182,13 @@
             </div>
           </div>
           <div class="probe-row probe-bars">
-            <el-tooltip :content="`${metrics[row.id].cpu_pct.toFixed(1)}%${metrics[row.id].cpu_cores ? ' · ' + metrics[row.id].cpu_cores + ' 核' : ''}`" placement="top" :show-after="150">
+            <el-tooltip :content="`${(metrics[row.id].cpu_pct ?? 0).toFixed(1)}%${metrics[row.id].cpu_cores ? ' · ' + metrics[row.id].cpu_cores + ' 核' : ''}`" placement="top" :show-after="150">
               <div class="bar-block">
                 <div class="bar-head">
                   <span>CPU</span>
-                  <span class="bar-val">{{ Math.round(metrics[row.id].cpu_pct) }}%</span>
+                  <span class="bar-val">{{ Math.round(metrics[row.id].cpu_pct ?? 0) }}%</span>
                 </div>
-                <div class="bar-track"><div class="bar-fill" :class="loadLevel(metrics[row.id].cpu_pct)" :style="{ width: Math.max(2, Math.min(100, metrics[row.id].cpu_pct)) + '%' }" /></div>
+                <div class="bar-track"><div class="bar-fill" :class="loadLevel(metrics[row.id].cpu_pct ?? 0)" :style="{ width: Math.max(2, Math.min(100, metrics[row.id].cpu_pct ?? 0)) + '%' }" /></div>
               </div>
             </el-tooltip>
             <el-tooltip :content="`${fmtBytes(metrics[row.id].mem_used)} / ${fmtBytes(metrics[row.id].mem_total)}`" placement="top" :show-after="150">
@@ -589,7 +589,7 @@ async function load(silent = false) {
 async function onDragEnd(evt) {
   if (evt.oldIndex === evt.newIndex) return
   try {
-    await nodeApi.reorder(nodes.value.map((n) => n.id))
+    await nodeApi.reorder(nodes.value.map((n) => n.id), { _suppressToast: true })
   } catch (e) {
     ElMessage.error('排序保存失败,已刷新')
     load(true)
@@ -810,7 +810,7 @@ async function resetDeployStatus(row) {
     Object.assign(row, resp.data.node, { _deploying: false })
     ElMessage.success('部署状态已重置')
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || '重置失败')
+    // 拦截器已弹错误 toast,这里只做状态恢复
     await load()
   }
 }
