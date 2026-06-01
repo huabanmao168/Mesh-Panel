@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from sqlalchemy import text
+from sqlalchemy import text, func
 
 from database import get_session
 from models.node import Node
@@ -136,81 +136,20 @@ def _do_scan_inner(node_id: int, session: Session):
             inst.updated_at = _now()
             session.add(inst)
 
-        # 关键安全门: routes=None 表示"扫描无法判定"(routes.toml 不存在/读失败/解析失败)
-        # → 跳过路由重建,保留 DB 原有路由树,避免 HTTP 模式实例被清空
-        # 只有 routes 是 list(可能空)才走全删全建
-        if s["routes"] is None:
-            session.commit()
-            result.append({
-                "id": inst.id,
-                "folder_name": folder,
-                "display_name": inst.display_name,
-                "route_count": None,  # 未知
-                "enabled": True,
-                "routes_preserved": True,
-            })
-            continue
-
-        # 重建路由树(全删全建,简单粗暴)
-        # 全程 raw SQL,完全绕开 ORM identity map + autoflush 的坑
-        session.commit()
-        session.expire_all()
-
-        iid = inst.id
-        # 关 FK 检查 → 删 routes + outs → 重开 FK
-        # 这是 SQLite 官方推荐的批量 cascade 删除做法
-        # 注意: 每次 commit 后 connection 会被关闭归还池,必须重新 session.connection()
-        conn = session.connection()
-        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
-        try:
-            conn.exec_driver_sql(
-                "DELETE FROM soga_route_outs WHERE route_id IN "
-                "(SELECT id FROM soga_routes WHERE instance_id = ?)",
-                (iid,),
-            )
-            conn.exec_driver_sql(
-                "DELETE FROM soga_routes WHERE instance_id = ?",
-                (iid,),
-            )
-        finally:
-            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+        # v2.2.8: 扫描不再碰路由表 — DB 是 routes 的唯一 source of truth
+        # 用户只能通过「保存路由」UI 改 soga_routes/soga_route_outs
         session.commit()
 
-        # 新建 routes + outs — commit 后 conn 已关闭,重新获取
-        conn = session.connection()
-        import json as _json2
-        for pos, route in enumerate(s["routes"]):
-            if route.get("is_system"):
-                continue
-            result_route = conn.exec_driver_sql(
-                "INSERT INTO soga_routes (instance_id, position, rules, balance, is_system, is_fallback) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    iid,
-                    pos,
-                    _json2.dumps(route.get("rules", [])),
-                    route.get("balance"),
-                    0,
-                    1 if route.get("is_fallback", False) else 0,
-                ),
-            )
-            new_route_id = result_route.lastrowid
-            for opos, out in enumerate(route.get("outs", [])):
-                landing_id = _match_landing_node(session, out)
-                if landing_id is None:
-                    continue
-                conn.exec_driver_sql(
-                    "INSERT INTO soga_route_outs (route_id, position, landing_node_id) "
-                    "VALUES (?, ?, ?)",
-                    (new_route_id, opos, landing_id),
-                )
-        session.commit()
+        # 取当前 DB 路由数(展示用)
+        route_count = session.exec(
+            select(func.count()).select_from(SogaRoute).where(SogaRoute.instance_id == inst.id)
+        ).one()
 
         result.append({
             "id": inst.id,
             "folder_name": folder,
             "display_name": inst.display_name,
-            "route_count": len(s["routes"]),
+            "route_count": route_count,
             "enabled": True,
         })
 
