@@ -60,7 +60,7 @@
         <span class="spacer" />
         <el-button @click="visible = false">取消</el-button>
         <el-button type="primary" :loading="saving" :disabled="!dirty" @click="save">
-          {{ isHttpMode ? '保存' : '保存并推送' }}
+          保存并推送
         </el-button>
       </div>
     </div>
@@ -97,7 +97,6 @@ const instTitle = computed(() => {
   return instance.value.display_name || instance.value.folder_name
 })
 
-const isHttpMode = computed(() => (instance.value?.route_source || 'file') === 'http')
 
 const dirty = computed(() => JSON.stringify(routes.value) !== original.value)
 

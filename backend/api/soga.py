@@ -213,7 +213,63 @@ def _do_scan_inner(node_id: int, session: Session):
     session.add(node)
     session.commit()
 
-    return {"ok": True, "instances": result, "last_scanned_at": node.soga_last_scanned_at.isoformat()}
+    # 自动接管 routes_url:扫完后遍历每个 enabled instance,
+    # 远端 conf 的 routes_url 与期望值不一致时纠正 + 重启 soga。
+    # 错误只记日志,不阻断扫描返回。
+    reconciled = _auto_reconcile_routes_url(session, node)
+
+    return {
+        "ok": True,
+        "instances": result,
+        "last_scanned_at": node.soga_last_scanned_at.isoformat(),
+        "reconciled": reconciled,
+    }
+
+
+def _auto_reconcile_routes_url(session: Session, node) -> dict:
+    """扫描收尾:确保所有 enabled instance 的 soga.conf 含正确的 routes_url。
+
+    幂等: 远端值已对齐则跳过。差异才写 conf + 重启 soga。
+    panel_public_url 没配 → 整体跳过(不抛错,等用户去 settings 配)。
+    """
+    from deploy.soga_push import (
+        read_conf, write_conf, _strip_routes_url, _parse_routes_url,
+        restart_soga, SogaPushError,
+    )
+    public_url = _panel_public_url(session)
+    if not public_url:
+        return {"skipped": "panel_public_url 未配置"}
+
+    instances = session.exec(
+        select(SogaInstance).where(
+            SogaInstance.node_id == node.id,
+            SogaInstance.enabled == True,  # noqa: E712
+        )
+    ).all()
+
+    corrected = 0
+    failed = []
+    for inst in instances:
+        if not inst.routes_token:
+            inst.routes_token = _gen_routes_token()
+            session.add(inst)
+            session.commit()
+        expected = _build_routes_url(public_url, inst.id, inst.routes_token)
+        try:
+            conf = read_conf(node, inst.folder_name)
+            current = _parse_routes_url(conf)
+            if current == expected:
+                continue  # 已对齐
+            new_text = _strip_routes_url(conf) + f"routes_url={expected}\n"
+            write_conf(node, inst.folder_name, new_text)
+            restart_soga(node, inst.folder_name)
+            corrected += 1
+        except SogaPushError as e:
+            failed.append({"folder": inst.folder_name, "error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            log.exception("auto_reconcile 单实例失败 folder=%s", inst.folder_name)
+            failed.append({"folder": inst.folder_name, "error": f"{type(e).__name__}: {e}"})
+    return {"corrected": corrected, "failed": failed, "total": len(instances)}
 
 
 def _match_landing_node(session: Session, out: dict) -> Optional[int]:
@@ -347,12 +403,20 @@ def update_system_probe(node_id: int, payload: dict, session: Session = Depends(
 
 @router.post("/{node_id}/push-all")
 def push_all_instances(node_id: int, session: Session = Depends(get_session)):
-    """一键重推该节点下所有 enabled 实例的 routes.toml。"""
-    from deploy.soga_push import render_routes_toml, push_routes, SogaPushError
+    """一键同步所有 enabled 实例的 routes_url 配置 + 重启 soga。
+
+    新语义(v2.2.6+): 不再下发 routes.toml,改为写 soga.conf 的 routes_url +
+    `soga restart <folder>` 让 soga 重新从面板 HTTP 拉取路由。
+    """
+    from deploy.soga_push import (
+        read_conf, write_conf, _strip_routes_url, _parse_routes_url,
+        restart_soga, SogaPushError,
+    )
 
     node = _require_soga_node(session, node_id)
-    enabled = bool(node.soga_system_probe)
-    probe_rules = _node_probe_rules(node)
+    public_url = _panel_public_url(session)
+    if not public_url:
+        raise HTTPException(400, "请先在系统设置填写「面板公网地址(panel_public_url)」")
 
     instances = session.exec(
         select(SogaInstance).where(
@@ -365,13 +429,15 @@ def push_all_instances(node_id: int, session: Session = Depends(get_session)):
     failed = []
     for inst in instances:
         try:
-            routes_data, landings_map = _load_instance_routes_for_push(session, inst.id)
-            toml_text = render_routes_toml(
-                routes_data, landings_map,
-                enable_system_probe=enabled,
-                system_probe_rules=probe_rules,
-            )
-            push_routes(node, inst.folder_name, toml_text)
+            if not inst.routes_token:
+                inst.routes_token = _gen_routes_token()
+                session.add(inst)
+                session.commit()
+            expected = _build_routes_url(public_url, inst.id, inst.routes_token)
+            conf = read_conf(node, inst.folder_name)
+            if _parse_routes_url(conf) != expected:
+                write_conf(node, inst.folder_name, _strip_routes_url(conf) + f"routes_url={expected}\n")
+            restart_soga(node, inst.folder_name)
             pushed += 1
         except SogaPushError as e:
             failed.append({"folder": inst.folder_name, "error": str(e)})
@@ -522,8 +588,11 @@ def delete_instance(instance_id: int, session: Session = Depends(get_session)):
 
 @router.post("/instances/{instance_id}/push")
 def push_single_instance(instance_id: int, session: Session = Depends(get_session)):
-    """重推单个实例的 routes.toml。"""
-    from deploy.soga_push import render_routes_toml, push_routes, SogaPushError
+    """同步单个实例的 routes_url 配置 + 重启 soga(新语义,v2.2.6+)。"""
+    from deploy.soga_push import (
+        read_conf, write_conf, _strip_routes_url, _parse_routes_url,
+        restart_soga, SogaPushError,
+    )
 
     inst = session.get(SogaInstance, instance_id)
     if not inst:
@@ -533,16 +602,19 @@ def push_single_instance(instance_id: int, session: Session = Depends(get_sessio
         raise HTTPException(404, "节点不存在")
     if not inst.enabled:
         raise HTTPException(400, "实例已消失,无法推送")
-    enabled = bool(node.soga_system_probe)
-    probe_rules = _node_probe_rules(node)
+    public_url = _panel_public_url(session)
+    if not public_url:
+        raise HTTPException(400, "请先在系统设置填写「面板公网地址(panel_public_url)」")
     try:
-        routes_data, landings_map = _load_instance_routes_for_push(session, inst.id)
-        toml_text = render_routes_toml(
-            routes_data, landings_map,
-            enable_system_probe=enabled,
-            system_probe_rules=probe_rules,
-        )
-        push_routes(node, inst.folder_name, toml_text)
+        if not inst.routes_token:
+            inst.routes_token = _gen_routes_token()
+            session.add(inst)
+            session.commit()
+        expected = _build_routes_url(public_url, inst.id, inst.routes_token)
+        conf = read_conf(node, inst.folder_name)
+        if _parse_routes_url(conf) != expected:
+            write_conf(node, inst.folder_name, _strip_routes_url(conf) + f"routes_url={expected}\n")
+        restart_soga(node, inst.folder_name)
     except SogaPushError as e:
         raise HTTPException(400, str(e))
     except Exception as e:  # noqa: BLE001
@@ -624,18 +696,19 @@ def get_instance_routes(instance_id: int, session: Session = Depends(get_session
 
 @router.put("/instances/{instance_id}/routes")
 def save_instance_routes(instance_id: int, payload: dict, session: Session = Depends(get_session)):
-    """保存并推送路由到入口机。
+    """保存路由 → DB。
+
+    v2.2.6+ 后路由分发统一走 HTTP 拉取(soga -routes_url 指向面板),
+    保存只写 DB,不下发 routes.toml,soga 下次拉取时自动取到新数据。
+    如需立即生效,UI 上用「同步配置」按钮显式调一次 set_routes_url+restart_soga。
 
     payload: {"routes": [
         {"rules":[...], "balance":"ip_hash"|null,
          "is_system":bool, "is_fallback":bool, "remark":str|null,
          "outs":[{"landing_node_id": int|null}]}
     ]}
-
-    流程: 校验 → 渲染 TOML → SSH 推送(file 模式) → 全量重写 DB(删旧建新) → commit。
-    顺序反转后:推送失败时 DB 不动,面板显示和节点状态保持一致。
     """
-    from deploy.soga_push import render_routes_toml, push_routes, SogaPushError
+    from deploy.soga_push import render_routes_toml, SogaPushError
 
     inst = session.get(SogaInstance, instance_id)
     if not inst:
@@ -682,7 +755,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
             if landings[lid].kind != "landing":
                 raise HTTPException(400, f"路由 #{idx+1} 关联节点必须是落地机")
 
-    # ─── 关键顺序: 先渲染 + 推送,成功后再改 DB ───
+    # 预渲染一次 TOML 仅用于校验 + 计算 bytes(出错及早抛,真实数据走 GET routes.toml 端点)
     enable_probe = bool(getattr(node, "soga_system_probe", True))
     probe_rules = _node_probe_rules(node)
     try:
@@ -697,19 +770,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
         log.exception("render_routes_toml 失败 instance_id=%s", instance_id)
         raise HTTPException(500, f"渲染异常: {type(e).__name__}: {e}")
 
-    is_http_mode = (inst.route_source or "file") == "http"
-
-    # file 模式: 先 SSH 推 routes.toml,失败立即 raise(DB 没动)
-    if not is_http_mode:
-        try:
-            push_routes(node, inst.folder_name, toml_text)
-        except SogaPushError as e:
-            raise HTTPException(502, f"SSH 推送失败: {e}")
-        except Exception as e:
-            log.exception("push routes SSH 异常 folder=%s", inst.folder_name)
-            raise HTTPException(502, f"SSH 异常: {type(e).__name__}: {e}")
-
-    # 推送成功(或 HTTP 模式跳过推送),开始写 DB
+    # 写 DB
     old_routes = session.exec(select(SogaRoute).where(SogaRoute.instance_id == instance_id)).all()
     for r in old_routes:
         session.exec(text(f"DELETE FROM soga_route_outs WHERE route_id={r.id}"))
@@ -736,17 +797,12 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
             ))
     session.commit()
 
-    if is_http_mode:
-        return {
-            "ok": True,
-            "pushed": False,
-            "mode": "http",
-            "bytes": len(toml_text.encode("utf-8")),
-        }
-    return {"ok": True, "pushed": True, "mode": "file", "bytes": len(toml_text.encode("utf-8"))}
+    return {"ok": True, "saved": True, "bytes": len(toml_text.encode("utf-8"))}
 
 
 # ─── 路由分发模式切换 ────────────────────────────────────────────────────────
+# v2.2.6+ 路由分发统一走 HTTP 拉取(soga -routes_url),已不再保留 file 模式切换接口。
+# 历史端点 POST /instances/{id}/route-source 已删除,前端「分发模式 radio」也已下线。
 
 def _gen_routes_token() -> str:
     import secrets
@@ -762,71 +818,6 @@ def _build_routes_url(public_url: str, instance_id: int, token: str) -> str:
     return f"{public_url}/api/soga/instances/{instance_id}/routes.toml?token={token}"
 
 
-@router.post("/instances/{instance_id}/route-source")
-def set_route_source(instance_id: int, payload: dict, session: Session = Depends(get_session)):
-    """切换路由分发模式 (显式动作:写 conf + 重启 soga + 写 DB)。
-
-    payload: {"mode": "file" | "http"}
-    """
-    from deploy.soga_push import set_routes_url, restart_soga, SogaPushError
-
-    mode = (payload or {}).get("mode")
-    if mode not in ("file", "http"):
-        raise HTTPException(400, "mode 必须是 file 或 http")
-
-    inst = session.get(SogaInstance, instance_id)
-    if not inst:
-        raise HTTPException(404, "实例不存在")
-    if not inst.enabled:
-        raise HTTPException(400, "实例已消失,无法切换")
-    node = session.get(Node, inst.node_id)
-    if not node:
-        raise HTTPException(404, "节点不存在")
-
-    if mode == "http":
-        public_url = _panel_public_url(session)
-        if not public_url:
-            raise HTTPException(400, "请先在系统设置填写面板公网地址(panel_public_url)")
-        if not inst.routes_token:
-            inst.routes_token = _gen_routes_token()
-        url = _build_routes_url(public_url, inst.id, inst.routes_token)
-        try:
-            set_routes_url(node, inst.folder_name, url)
-        except SogaPushError as e:
-            raise HTTPException(502, f"写 soga.conf 失败: {e}")
-    else:
-        try:
-            set_routes_url(node, inst.folder_name, None)
-        except SogaPushError as e:
-            raise HTTPException(502, f"写 soga.conf 失败: {e}")
-
-    inst.route_source = mode
-    inst.updated_at = _now()
-    session.add(inst)
-    session.commit()
-
-    # 重启让 soga 重读 conf
-    restart_ok = True
-    restart_msg = ""
-    try:
-        restart_msg = restart_soga(node, inst.folder_name)
-    except SogaPushError as e:
-        restart_ok = False
-        restart_msg = str(e)
-    except Exception as e:  # noqa: BLE001
-        log.exception("route_source 切换后重启失败 folder=%s", inst.folder_name)
-        restart_ok = False
-        restart_msg = f"{type(e).__name__}: {e}"
-
-    return {
-        "ok": True,
-        "route_source": inst.route_source,
-        "routes_token": inst.routes_token,
-        "restarted": restart_ok,
-        "restart_output": restart_msg,
-    }
-
-
 # ─── 公开端点: soga 拉 routes.toml ───────────────────────────────────────────
 
 @router.get("/instances/{instance_id}/routes.toml")
@@ -839,9 +830,6 @@ def serve_routes_toml(instance_id: int, token: str = "", session: Session = Depe
         return Response(status_code=444)
     inst = session.get(SogaInstance, instance_id)
     if not inst or not inst.routes_token or not _consteq(token, inst.routes_token):
-        return Response(status_code=444)
-    if (inst.route_source or "file") != "http":
-        # 不在 http 模式下拒绝服务,避免 soga 在切回 file 后还能拉到
         return Response(status_code=444)
     node = session.get(Node, inst.node_id)
     if not node:

@@ -150,15 +150,6 @@ def _parse_landing_for_out(land) -> dict:
     }
 
 
-def push_routes(node, folder_name: str, toml_text: str) -> None:
-    """写 /etc/soga/<folder>/routes.toml — 覆盖,不备份。"""
-    _require_online(node)
-    try:
-        remote.remote_write(node, f"/etc/soga/{folder_name}/routes.toml", toml_text, mode=0o644)
-    except remote.RemoteError as e:
-        raise SogaPushError(f"写 routes.toml 失败: {e}") from e
-
-
 def read_conf(node, folder_name: str) -> str:
     """读 /etc/soga/<folder>/soga.conf 原文。"""
     _require_online(node)
@@ -177,6 +168,15 @@ def write_conf(node, folder_name: str, text: str) -> None:
         remote.remote_write(node, f"/etc/soga/{folder_name}/soga.conf", text, mode=0o644)
     except remote.RemoteError as e:
         raise SogaPushError(f"写 soga.conf 失败: {e}") from e
+
+
+def _parse_routes_url(text: str) -> str | None:
+    """从 conf 文本里提取第一行 routes_url= 的值,没有返回 None。"""
+    for ln in text.splitlines():
+        s = ln.lstrip()
+        if s.lower().startswith("routes_url="):
+            return s.split("=", 1)[1].strip()
+    return None
 
 
 def _strip_routes_url(text: str) -> str:

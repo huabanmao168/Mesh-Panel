@@ -94,27 +94,33 @@ def scan_soga_instances(node) -> Dict[str, Any]:
         if folder:
             folders.append(folder)
 
-    # 逐个读 routes.toml
+    # 判据放宽: soga.conf 存在 = 是一个有效实例 (不再依赖 routes.toml)
+    # routes.toml 读不到/不存在 → routes=[], 后续 push 接口会自动重建
     result = []
     for folder in folders:
+        conf_path = f"/etc/soga/{folder}/soga.conf"
+        try:
+            cst = remote.remote_stat(node, conf_path)
+        except remote.RemoteError:
+            continue
+        if cst is None:
+            continue  # soga.conf 不存在 → 不是一个实例,跳过
+
+        # 尝试读 routes.toml — 失败/不存在不阻断,routes=[]
+        routes: List[Dict[str, Any]] = []
         routes_path = f"/etc/soga/{folder}/routes.toml"
         try:
             st = remote.remote_stat(node, routes_path)
         except remote.RemoteError:
-            continue
-        if st is None:
-            continue
-        if st.get("size", 0) > MAX_ROUTES_FILE_BYTES:
-            continue
-        try:
-            raw = remote.remote_read(node, routes_path, max_size=MAX_ROUTES_FILE_BYTES)
-        except remote.RemoteError as e:
-            result.append({"folder": folder, "routes": [{"error": f"read failed: {e}"}]})
-            continue
-        try:
-            routes = _parse_routes_toml(raw)
-        except Exception as e:
-            routes = [{"error": f"parse failed: {e}"}]
+            st = None
+        if st is not None and st.get("size", 0) <= MAX_ROUTES_FILE_BYTES:
+            try:
+                raw = remote.remote_read(node, routes_path, max_size=MAX_ROUTES_FILE_BYTES)
+                routes = _parse_routes_toml(raw)
+            except remote.RemoteError:
+                routes = []
+            except Exception:
+                routes = []
         result.append({"folder": folder, "routes": routes})
 
     return {"instances": result, "soga_version": soga_version}

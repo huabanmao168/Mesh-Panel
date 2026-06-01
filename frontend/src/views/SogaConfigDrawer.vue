@@ -29,7 +29,7 @@
               :loading="pushingAll"
               :disabled="!instances.length"
               @click="pushAll"
-            >重新推送</el-button>
+            >同步配置</el-button>
           </div>
         </div>
 
@@ -166,9 +166,9 @@
                       </el-dropdown-item>
                       <el-dropdown-item
                         command="push"
-                        :disabled="inst.enabled === false || pendingSourceChanged(inst) || (inst.route_source || 'file') !== 'file'"
+                        :disabled="inst.enabled === false"
                       >
-                        <el-icon><Promotion /></el-icon>重新推送
+                        <el-icon><Promotion /></el-icon>同步配置
                       </el-dropdown-item>
                       <el-dropdown-item
                         command="restart"
@@ -188,31 +188,6 @@
                   </template>
                 </el-dropdown>
 
-                <!-- 路由分发 -->
-                <div class="route-source-block">
-                  <el-radio-group
-                    v-model="sourceDraft[inst.id]"
-                    size="small"
-                    :disabled="inst.enabled === false || sourceBusy === inst.id"
-                  >
-                    <el-radio value="http">HTTP 拉取</el-radio>
-                    <el-radio value="file">本地文件</el-radio>
-                  </el-radio-group>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    :loading="sourceBusy === inst.id"
-                    :disabled="!canApplySource(inst)"
-                    :title="applyDisabledHint(inst)"
-                    @click="applySource(inst)"
-                  >应用</el-button>
-
-                  <div class="route-source-detail" v-if="(sourceDraft[inst.id] || inst.route_source || 'file') === 'http' && !panelPublicUrl">
-                    <div class="url-row muted">
-                      请先在系统设置填写「面板公网地址」
-                    </div>
-                  </div>
-                </div>
               </div>
               </template>
             </draggable>
@@ -232,7 +207,6 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Promotion, Edit, Delete, MoreFilled } from '@element-plus/icons-vue'
 import http from '../api.js'
-import { settingsApi } from '../api.js'
 import draggable from 'vuedraggable'
 import SogaRouteEditor from './SogaRouteEditor.vue'
 import SogaConfEditor from './SogaConfEditor.vue'
@@ -298,7 +272,7 @@ async function pushOne(inst) {
   pushingId.value = inst.id
   try {
     await http.post(`/soga/instances/${inst.id}/push`)
-    ElMessage.success(`已推送 ${inst.folder_name}`)
+    ElMessage.success(`已同步 ${inst.folder_name}`)
   } catch (e) {
   } finally {
     pushingId.value = null
@@ -355,50 +329,8 @@ function onInstMenu(cmd, inst) {
 }
 
 // ─── 路由分发模式 ───────────────────────────────────────────────────────
-const panelPublicUrl = ref('')        // 系统设置里的面板公网地址
-const sourceDraft = ref({})           // {instId: 'file'|'http'} 用户选中但未应用
-const sourceBusy = ref(null)          // 正在切换的 instId
-
-function pendingSourceChanged(inst) {
-  const cur = inst.route_source || 'file'
-  const draft = sourceDraft.value[inst.id] || cur
-  return draft !== cur
-}
-function canApplySource(inst) {
-  if (inst.enabled === false) return false
-  if (sourceBusy.value) return false
-  const cur = inst.route_source || 'file'
-  const draft = sourceDraft.value[inst.id] || cur
-  if (draft === cur) return false
-  if (draft === 'http' && !panelPublicUrl.value) return false
-  return true
-}
-function applyDisabledHint(inst) {
-  const cur = inst.route_source || 'file'
-  const draft = sourceDraft.value[inst.id] || cur
-  if (draft === cur) return '未改变,无需应用'
-  if (draft === 'http' && !panelPublicUrl.value) return '请先在系统设置填写面板公网地址'
-  return ''
-}
-async function applySource(inst) {
-  const draft = sourceDraft.value[inst.id]
-  if (!draft) return
-  sourceBusy.value = inst.id
-  try {
-    const r = await http.post(`/soga/instances/${inst.id}/route-source`, { mode: draft })
-    inst.route_source = r.route_source
-    inst.routes_token = r.routes_token
-    sourceDraft.value[inst.id] = r.route_source
-    if (r.restarted) {
-      ElMessage.success(`已切换到「${draft === 'http' ? 'HTTP 拉取' : '本地文件'}」并重启 Soga`)
-    } else {
-      ElMessage.warning(`已切换但重启失败: ${r.restart_output || '未知错误'}`)
-    }
-  } catch (e) {
-  } finally {
-    sourceBusy.value = null
-  }
-}
+// v2.2.6+ 已统一走 HTTP 拉取(soga -routes_url 指向面板),
+// 「分发模式」radio 已下线,这里只保留 systemProbe 相关 state。
 
 const systemProbeRules = ref([])      // 服务端当前生效列表
 const systemProbeCustom = ref(false)
@@ -487,28 +419,12 @@ async function open(nodeId) {
   try {
     const r = await http.get(`/soga/${nodeId}/instances`)
     instances.value = r.instances || []
-    syncSourceDraft()
     applyProbeFromResp(r)
   } catch {
     // 没扫过 → 空
   } finally {
     loadingNode.value = false
   }
-  // 拉系统设置里的 panel_public_url(每次打开都拉一次,免得用户改了不刷新)
-  try {
-    const s = await settingsApi.get()
-    panelPublicUrl.value = (s.data?.panel_public_url || '').replace(/\/+$/, '')
-  } catch {
-    panelPublicUrl.value = ''
-  }
-}
-
-function syncSourceDraft() {
-  const d = {}
-  for (const inst of instances.value) {
-    d[inst.id] = inst.route_source || 'file'
-  }
-  sourceDraft.value = d
 }
 
 function applyProbeFromResp(r) {
@@ -527,7 +443,6 @@ async function scan() {
     await http.post(`/soga/${node.value.id}/scan`)
     const r = await http.get(`/soga/${node.value.id}/instances`)
     instances.value = r.instances || []
-    syncSourceDraft()
     applyProbeFromResp(r)
     ElMessage.success(`已加载 ${instances.value.length} 个实例`)
   } catch (e) {
@@ -554,7 +469,7 @@ async function saveProbeRules() {
     systemProbeRules.value = r.rules || cleaned
     systemProbeCustom.value = !!r.custom
     probeRulesText.value = systemProbeRules.value.join('\n')
-    ElMessage.success('已保存 · 用「重新推送」下发到实例')
+    ElMessage.success('已保存 · 用「同步配置」下发到实例')
   } catch (e) {
   } finally {
     probeBusy.value = false
@@ -585,8 +500,8 @@ async function resetProbeRules() {
 async function pushAll() {
   try {
     await ElMessageBox.confirm(
-      `推送到 ${instances.value.length} 个实例?`,
-      '重新推送',
+      `同步 ${instances.value.length} 个实例的配置 + 重启 Soga?`,
+      '同步配置',
       { type: 'warning' },
     )
   } catch { return }
@@ -596,7 +511,7 @@ async function pushAll() {
     if (r.failed?.length) {
       ElMessage.warning(`${r.pushed}/${r.total} 成功 · ${r.failed.length} 失败: ${r.failed.map(f => f.folder).join(', ')}`)
     } else {
-      ElMessage.success(`已推送 ${r.pushed} 个实例`)
+      ElMessage.success(`已同步 ${r.pushed} 个实例`)
     }
   } catch (e) {
   } finally {
