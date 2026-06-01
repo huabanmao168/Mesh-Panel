@@ -106,8 +106,11 @@ def scan_soga_instances(node) -> Dict[str, Any]:
         if cst is None:
             continue  # soga.conf 不存在 → 不是一个实例,跳过
 
-        # 尝试读 routes.toml — 失败/不存在不阻断,routes=[]
-        routes: List[Dict[str, Any]] = []
+        # 尝试读 routes.toml。
+        # 关键: routes=None 表示"无法判定"(文件不存在/读失败/解析失败/超大),
+        # 入库时会跳过路由重建,只更新 instance 元数据,避免清空 DB 已有路由。
+        # 只有真的读到内容并解析成功(可能是空 list)才填实际值。
+        routes = None
         routes_path = f"/etc/soga/{folder}/routes.toml"
         try:
             st = remote.remote_stat(node, routes_path)
@@ -118,9 +121,9 @@ def scan_soga_instances(node) -> Dict[str, Any]:
                 raw = remote.remote_read(node, routes_path, max_size=MAX_ROUTES_FILE_BYTES)
                 routes = _parse_routes_toml(raw)
             except remote.RemoteError:
-                routes = []
+                routes = None
             except Exception:
-                routes = []
+                routes = None
         result.append({"folder": folder, "routes": routes})
 
     return {"instances": result, "soga_version": soga_version}

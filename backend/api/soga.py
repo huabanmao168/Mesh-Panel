@@ -136,6 +136,21 @@ def _do_scan_inner(node_id: int, session: Session):
             inst.updated_at = _now()
             session.add(inst)
 
+        # 关键安全门: routes=None 表示"扫描无法判定"(routes.toml 不存在/读失败/解析失败)
+        # → 跳过路由重建,保留 DB 原有路由树,避免 HTTP 模式实例被清空
+        # 只有 routes 是 list(可能空)才走全删全建
+        if s["routes"] is None:
+            session.commit()
+            result.append({
+                "id": inst.id,
+                "folder_name": folder,
+                "display_name": inst.display_name,
+                "route_count": None,  # 未知
+                "enabled": True,
+                "routes_preserved": True,
+            })
+            continue
+
         # 重建路由树(全删全建,简单粗暴)
         # 全程 raw SQL,完全绕开 ORM identity map + autoflush 的坑
         session.commit()
