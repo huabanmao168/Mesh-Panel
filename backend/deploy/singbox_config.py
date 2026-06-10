@@ -54,7 +54,7 @@ DEFAULT_SS_CONFIG: dict[str, Any] = {
     "log_level": "warn",
     # --- DNS 共用 ---
     "dns_primary": "https://1.1.1.1/dns-query",
-    "dns_backup": "https://8.8.8.8/dns-query",
+
     "dns_strategy": "ipv4_only",
 }
 
@@ -213,11 +213,8 @@ def render_singbox_config(ss_cfg: dict, schema: str = "singbox-1.13") -> dict:
     """
     dns_servers: list[dict] = []
     primary = (ss_cfg.get("dns_primary") or "").strip()
-    backup = (ss_cfg.get("dns_backup") or "").strip()
     if primary:
         dns_servers.append(_parse_dns_server("doh-primary", primary))
-    if backup:
-        dns_servers.append(_parse_dns_server("doh-backup", backup))
     if not dns_servers:
         # 兜底
         dns_servers.append(_parse_dns_server("doh-primary", "https://1.1.1.1/dns-query"))

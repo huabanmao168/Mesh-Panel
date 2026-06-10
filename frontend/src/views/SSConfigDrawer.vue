@@ -126,9 +126,6 @@
           <el-form-item label="主 DNS">
             <el-input v-model="form.dns_primary" placeholder="https://1.1.1.1/dns-query" />
           </el-form-item>
-          <el-form-item label="备用 DNS">
-            <el-input v-model="form.dns_backup" placeholder="留空" />
-          </el-form-item>
           <el-form-item label="解析策略">
             <el-select v-model="form.dns_strategy" style="width: 100%">
               <el-option label="仅 IPv4" value="ipv4_only" />
@@ -211,7 +208,6 @@ const form = reactive({
   ntp_enabled: false,
   ntp_server: 'time.apple.com',
   dns_primary: 'https://1.1.1.1/dns-query',
-  dns_backup: 'https://8.8.8.8/dns-query',
   dns_strategy: 'ipv4_only',
 })
 const options = reactive({ methods: [], protocols: [], sniffers: [], log_levels: [], dns_strategies: [] })
