@@ -43,6 +43,7 @@ def render_routes_toml(
     landing_nodes_by_id: Dict[int, object],
     enable_system_probe: bool = True,
     system_probe_rules: List[str] = None,
+    source_listen: str | None = None,
 ) -> str:
     """routes 项格式:
       {
@@ -58,6 +59,7 @@ def render_routes_toml(
     system_probe_rules=None 则用内置 SYSTEM_PROBE_RULES,否则用传入列表。
     """
     probe_rules = system_probe_rules if system_probe_rules else SYSTEM_PROBE_RULES
+    source_listen = (source_listen or "").strip()
     buf = io.StringIO()
     buf.write("enable=true\n\n")
 
@@ -68,7 +70,8 @@ def render_routes_toml(
             buf.write(f"  {_toml_str(rule)},\n")
         buf.write("]\n")
         buf.write("[[routes.Outs]]\n")
-        buf.write('listen=""\n')
+        if source_listen:
+            buf.write(f"listen={_toml_str(source_listen)}\n")
         buf.write('type="direct"\n')
         buf.write("\n")
 
@@ -95,8 +98,10 @@ def render_routes_toml(
             if not land:
                 raise SogaPushError(f"路由出站缺落地节点(landing_node_id={land_id})")
             cfg = _parse_landing_for_out(land)
-            # SoGa 官方示例里 listen 放在 type 前；这里按官方顺序渲染。
-            buf.write(f"listen={_toml_str(o.get('listen') or '')}\n")
+            # SoGa 官方示例里 listen 放在 type 前；优先用手填,为空则回落 soga.conf listen。
+            out_listen = (o.get("listen") or source_listen or "").strip()
+            if out_listen:
+                buf.write(f"listen={_toml_str(out_listen)}\n")
             for k, v in cfg.items():
                 if isinstance(v, str):
                     buf.write(f"{k}={_toml_str(v)}\n")
@@ -110,6 +115,18 @@ def _toml_str(s: str) -> str:
     """安全的 TOML 双引号字符串(简化版,转义反斜杠和引号)。"""
     s = s.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{s}"'
+
+
+def parse_conf_listen(text: str) -> str:
+    """从 soga.conf 提取 listen= 的值；没有则返回空字符串。"""
+    for ln in text.splitlines():
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.lower().startswith("listen="):
+            val = s.split("=", 1)[1].split("#", 1)[0].strip().strip('"').strip("'")
+            return val
+    return ""
 
 
 def _parse_landing_for_out(land) -> dict:
