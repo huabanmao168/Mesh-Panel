@@ -11,6 +11,8 @@ BINARY_PATH="${INSTALL_DIR}/mesh-panel"
 SERVICE_NAME="meshpanel"
 DEFAULT_PORT="8000"
 ASSET_NAME="mesh-panel-linux-amd64"
+# GitHub 文件下载加速源。默认走 ghfast；如需直连：GITHUB_PROXY= bash <(curl .../install.sh)
+GITHUB_PROXY="${GITHUB_PROXY-https://ghfast.top}"
 
 c_green='\033[32m'; c_red='\033[31m'; c_yellow='\033[33m'; c_blue='\033[34m'; c_cyan='\033[36m'; c_bold='\033[1m'; c_reset='\033[0m'
 log()  { echo -e "${c_blue}[*]${c_reset} $*"; }
@@ -49,6 +51,15 @@ ensure_sqlite3() {
   elif command -v dnf >/dev/null; then dnf install -y -q sqlite
   elif command -v yum >/dev/null; then yum install -y -q sqlite
   else die "请先手动装 sqlite3"
+  fi
+}
+
+github_file_url() {
+  local url="$1"
+  if [[ -n "${GITHUB_PROXY}" ]]; then
+    echo "${GITHUB_PROXY%/}/${url}"
+  else
+    echo "$url"
   fi
 }
 
@@ -101,13 +112,17 @@ download_binary() {
   local version="$1"
   local url="https://github.com/${REPO}/releases/download/${version}/${ASSET_NAME}"
   local sha_url="${url}.sha256"
+  local dl_url sha_dl_url
+  dl_url=$(github_file_url "$url")
+  sha_dl_url=$(github_file_url "$sha_url")
   log "下载 ${ASSET_NAME} (${version})..."
+  [[ -n "${GITHUB_PROXY}" ]] && log "GitHub 加速源: ${GITHUB_PROXY%/}"
   mkdir -p "$INSTALL_DIR"
   # 先下到临时文件再原子替换,避免覆盖中途崩了
-  curl -fsSL --retry 3 -o "${BINARY_PATH}.new" "$url" \
+  curl -fsSL --retry 3 -o "${BINARY_PATH}.new" "$dl_url" \
     || die "下载失败: $url"
   # sha256 校验(release 必须同时发布 .sha256;缺失=异常,硬失败)
-  if ! curl -fsSL --retry 2 -o "${BINARY_PATH}.new.sha256" "$sha_url"; then
+  if ! curl -fsSL --retry 2 -o "${BINARY_PATH}.new.sha256" "$sha_dl_url"; then
     rm -f "${BINARY_PATH}.new" "${BINARY_PATH}.new.sha256"
     die "sha256 文件下载失败: $sha_url (release 必须配套发布,缺失视为异常)"
   fi
@@ -177,7 +192,7 @@ EOF
 install_shortcut() {
   # /usr/local/bin/mesh -> 本脚本副本,让用户输入 mesh 即可打开菜单
   cp -f "$0" "${INSTALL_DIR}/install.sh" 2>/dev/null || \
-    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/install.sh" -o "${INSTALL_DIR}/install.sh"
+    curl -fsSL "$(github_file_url "https://raw.githubusercontent.com/${REPO}/main/install.sh")" -o "${INSTALL_DIR}/install.sh"
   chmod +x "${INSTALL_DIR}/install.sh"
   cat > /usr/local/bin/mesh <<EOF
 #!/usr/bin/env bash
