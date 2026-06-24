@@ -50,7 +50,7 @@ def render_routes_toml(
         "balance": "ip_hash" | None,
         "is_fallback": bool,
         "outs": [
-          { "landing_node_id": int }
+          { "landing_node_id": int, "listen": str }
         ]
       }
 
@@ -94,6 +94,7 @@ def render_routes_toml(
             if not land:
                 raise SogaPushError(f"路由出站缺落地节点(landing_node_id={land_id})")
             cfg = _parse_landing_for_out(land)
+            cfg["listen"] = o.get("listen") or ""
             for k, v in cfg.items():
                 if isinstance(v, str):
                     buf.write(f"{k}={_toml_str(v)}\n")

@@ -132,7 +132,7 @@ function normalize(r) {
     balance: r.balance || 'ip_hash',
     is_fallback: !!r.is_fallback,
     remark: r.remark || '',
-    outs: (r.outs || []).map(o => ({ landing_node_id: o.landing_node_id })),
+    outs: (r.outs || []).map(o => ({ landing_node_id: o.landing_node_id, listen: o.listen || '' })),
   }
 }
 
@@ -193,7 +193,7 @@ async function save() {
         balance: r.balance,
         is_fallback: r.is_fallback,
         remark: r.remark || null,
-        outs: r.outs.map(o => ({ landing_node_id: o.landing_node_id })),
+        outs: r.outs.map(o => ({ landing_node_id: o.landing_node_id, listen: (o.listen || '').trim() })),
       })),
     }
     const r = await http.put(`/soga/instances/${instance.value.id}/routes`, payload)

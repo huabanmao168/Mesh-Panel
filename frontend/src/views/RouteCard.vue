@@ -78,37 +78,52 @@
       <!-- 落地池 + 负载均衡 -->
       <div class="field">
         <div class="field-label">落地</div>
-        <div class="field-control field-control-row">
-          <el-select
-            :model-value="route.outs.map(o => o.landing_node_id)"
-            multiple
-            filterable
-            placeholder="选择落地节点"
-            size="small"
-            class="landing-select"
-            @update:model-value="onLandingChange"
-          >
-            <el-option
-              v-for="n in landings"
-              :key="n.id"
-              :label="n.name"
-              :value="n.id"
+        <div class="field-control">
+          <div class="field-control-row">
+            <el-select
+              :model-value="route.outs.map(o => o.landing_node_id)"
+              multiple
+              filterable
+              placeholder="选择落地节点"
+              size="small"
+              class="landing-select"
+              @update:model-value="onLandingChange"
             >
-              <span>{{ n.name }}</span>
-              <span class="opt-host">{{ n.host }}</span>
-            </el-option>
-          </el-select>
+              <el-option
+                v-for="n in landings"
+                :key="n.id"
+                :label="n.name"
+                :value="n.id"
+              >
+                <span>{{ n.name }}</span>
+                <span class="opt-host">{{ n.host }}</span>
+              </el-option>
+            </el-select>
 
-          <el-select
-            v-if="route.outs.length > 1"
-            v-model="route.balance"
-            size="small"
-            class="balance-select"
-          >
-            <el-option label="ip_hash" value="ip_hash" />
-            <el-option label="random" value="random" />
-            <el-option label="round_robin" value="round_robin" />
-          </el-select>
+            <el-select
+              v-if="route.outs.length > 1"
+              v-model="route.balance"
+              size="small"
+              class="balance-select"
+            >
+              <el-option label="ip_hash" value="ip_hash" />
+              <el-option label="random" value="random" />
+              <el-option label="round_robin" value="round_robin" />
+            </el-select>
+          </div>
+
+          <div v-if="route.outs.length" class="out-list">
+            <div v-for="out in route.outs" :key="out.landing_node_id" class="out-row">
+              <span class="out-name">{{ landingName(out.landing_node_id) }}</span>
+              <el-input
+                v-model="out.listen"
+                size="small"
+                class="listen-input"
+                placeholder="listen 可空,如 191.40.0.10"
+                clearable
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -188,7 +203,13 @@ function rulePlaceholder(prefix) {
 }
 
 function onLandingChange(ids) {
-  props.route.outs = ids.map(id => ({ landing_node_id: id }))
+  const old = new Map((props.route.outs || []).map(o => [o.landing_node_id, o.listen || '']))
+  props.route.outs = ids.map(id => ({ landing_node_id: id, listen: old.get(id) || '' }))
+}
+
+function landingName(id) {
+  const n = props.landings.find(x => x.id === id)
+  return n ? n.name : `#${id}`
 }
 </script>
 
@@ -398,6 +419,27 @@ function onLandingChange(ids) {
 }
 .landing-select { width: 100%; }
 .balance-select { width: 100%; }
+.out-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.out-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 150px) 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.out-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #4b5563;
+}
+.listen-input { width: 100%; }
 /* 落地节点 tag: 绿调,跟规则灰 chip / 兜底灰 chip 区分 */
 .landing-select :deep(.el-select__tags-text) {
   color: #047857;

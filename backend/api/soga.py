@@ -596,7 +596,7 @@ def _load_instance_routes_for_push(session: Session, instance_id: int):
         for o in outs:
             if o.landing_node_id:
                 needed_ids.add(o.landing_node_id)
-            out_list.append({"landing_node_id": o.landing_node_id})
+            out_list.append({"landing_node_id": o.landing_node_id, "listen": getattr(o, "listen", "") or ""})
         routes_data.append({
             "rules": r.rules or [],
             "balance": r.balance,
@@ -634,7 +634,7 @@ def get_instance_routes(instance_id: int, session: Session = Depends(get_session
             "is_system": r.is_system,
             "is_fallback": r.is_fallback,
             "remark": r.remark,
-            "outs": [{"id": o.id, "landing_node_id": o.landing_node_id} for o in outs],
+            "outs": [{"id": o.id, "landing_node_id": o.landing_node_id, "listen": getattr(o, "listen", "") or ""} for o in outs],
         })
     return {
         "ok": True,
@@ -659,7 +659,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
     payload: {"routes": [
         {"rules":[...], "balance":"ip_hash"|null,
          "is_system":bool, "is_fallback":bool, "remark":str|null,
-         "outs":[{"landing_node_id": int|null}]}
+         "outs":[{"landing_node_id": int|null, "listen": str|null}]}
     ]}
     """
     from deploy.soga_push import render_routes_toml, SogaPushError
@@ -748,6 +748,7 @@ def save_instance_routes(instance_id: int, payload: dict, session: Session = Dep
                 route_id=rec.id,
                 position=opos,
                 landing_node_id=o.get("landing_node_id"),
+                listen=(o.get("listen") or "").strip(),
             ))
     session.commit()
 

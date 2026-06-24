@@ -49,3 +49,4 @@ class SogaRouteOut(SQLModel, table=True):
     route_id: int = Field(index=True, foreign_key="soga_routes.id")
     position: int = Field(default=0)
     landing_node_id: int = Field(foreign_key="nodes.id", description="关联的落地节点")
+    listen: str = Field(default="", description="SoGa routes.Outs listen,空字符串=不指定出站源 IP")
