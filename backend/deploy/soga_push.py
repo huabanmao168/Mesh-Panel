@@ -68,6 +68,7 @@ def render_routes_toml(
             buf.write(f"  {_toml_str(rule)},\n")
         buf.write("]\n")
         buf.write("[[routes.Outs]]\n")
+        buf.write('listen=""\n')
         buf.write('type="direct"\n')
         buf.write("\n")
 
@@ -94,7 +95,8 @@ def render_routes_toml(
             if not land:
                 raise SogaPushError(f"路由出站缺落地节点(landing_node_id={land_id})")
             cfg = _parse_landing_for_out(land)
-            cfg["listen"] = o.get("listen") or ""
+            # SoGa 官方示例里 listen 放在 type 前；这里按官方顺序渲染。
+            buf.write(f"listen={_toml_str(o.get('listen') or '')}\n")
             for k, v in cfg.items():
                 if isinstance(v, str):
                     buf.write(f"{k}={_toml_str(v)}\n")
