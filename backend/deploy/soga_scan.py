@@ -23,21 +23,45 @@ class ScanError(Exception):
     pass
 
 
+def parse_soga_version_output(stdout: str) -> str | None:
+    """从 soga 版本输出里提取真正的 soga 程序版本。
+
+    soga 管理脚本会输出两行，例如:
+      管理脚本: v0.0.6
+      soga 程序: v2.16.0
+    旧逻辑只取第一行，导致面板显示成管理脚本版本 v0.0.6。
+    """
+    text = stdout or ""
+    # 优先取明确标注的 soga 程序版本，排除管理脚本版本。
+    for line in text.splitlines():
+        if re.search(r"soga\s*(程序|program|binary|core)", line, re.I):
+            m = re.search(r"v?\d+\.\d+\.\d+(?:[-.\w]+)?", line)
+            if m:
+                return m.group(0)
+    # 兼容只有单行真实 binary 版本的安装方式。
+    for line in text.splitlines():
+        if re.search(r"管理脚本|manager|script", line, re.I):
+            continue
+        m = re.search(r"v?\d+\.\d+\.\d+(?:[-.\w]+)?", line)
+        if m:
+            return m.group(0)
+    return None
+
+
 def scan_soga_instances(node) -> Dict[str, Any]:
     """扫描节点上 /etc/soga/*/ 下所有有 soga.conf 的文件夹,返回实例列表。"""
-    # 取 soga 版本(失败不阻断)
+    # 取 soga 程序版本(失败不阻断)
     soga_version = None
     try:
-        ver_raw = remote.remote_exec(node, "soga --version 2>&1 | head -1", timeout=8)
+        ver_raw = remote.remote_exec(node, "(soga -v || soga --version) 2>&1", timeout=8)
         stdout = ""
         if isinstance(ver_raw, dict):
-            stdout = ver_raw.get("stdout") or ver_raw.get("output") or ""
+            stdout = (ver_raw.get("stdout") or "") + "\n" + (ver_raw.get("stderr") or "")
+            if not stdout.strip():
+                stdout = ver_raw.get("output") or ""
         elif isinstance(ver_raw, str):
             stdout = ver_raw
-        if stdout:
-            m = re.search(r"v?\d+\.\d+\.\d+(?:[-.\w]+)?", stdout)
-            if m:
-                soga_version = m.group(0)
+        soga_version = parse_soga_version_output(stdout)
     except remote.RemoteOffline as e:
         raise ScanError(str(e)) from e
     except remote.RemoteError:
