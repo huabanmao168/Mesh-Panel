@@ -57,9 +57,10 @@ def render_routes_toml(
 
     enable_system_probe=True 时,自动在最顶部注入系统探活路由。
     system_probe_rules=None 则用内置 SYSTEM_PROBE_RULES,否则用传入列表。
+    source_listen 为历史兼容参数: 不再自动继承到 routes.Outs，避免 soga.conf
+    listen 污染系统探活或业务出口；只有 DB 里手动配置的 out.listen 才会写入。
     """
     probe_rules = system_probe_rules if system_probe_rules else SYSTEM_PROBE_RULES
-    source_listen = (source_listen or "").strip()
     buf = io.StringIO()
     buf.write("enable=true\n\n")
 
@@ -70,8 +71,6 @@ def render_routes_toml(
             buf.write(f"  {_toml_str(rule)},\n")
         buf.write("]\n")
         buf.write("[[routes.Outs]]\n")
-        if source_listen:
-            buf.write(f"listen={_toml_str(source_listen)}\n")
         buf.write('type="direct"\n')
         buf.write("\n")
 
@@ -98,8 +97,9 @@ def render_routes_toml(
             if not land:
                 raise SogaPushError(f"路由出站缺落地节点(landing_node_id={land_id})")
             cfg = _parse_landing_for_out(land)
-            # SoGa 官方示例里 listen 放在 type 前；优先用手填,为空则回落 soga.conf listen。
-            out_listen = (o.get("listen") or source_listen or "").strip()
+            # listen 只信任路由出站手动配置；空值不再回落 soga.conf listen，
+            # 防止本地入口 listen 污染 routes_url 生成结果。
+            out_listen = (o.get("listen") or "").strip()
             if out_listen:
                 buf.write(f"listen={_toml_str(out_listen)}\n")
             for k, v in cfg.items():

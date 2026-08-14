@@ -779,7 +779,7 @@ def _build_routes_url(public_url: str, instance_id: int, token: str) -> str:
 def serve_routes_toml(instance_id: int, token: str = "", session: Session = Depends(get_session)):
     """soga -routes_url 拉这里。token 错或缺失返 444 空 body 不泄漏存在性。"""
     from fastapi.responses import Response, PlainTextResponse
-    from deploy.soga_push import render_routes_toml, read_conf, parse_conf_listen
+    from deploy.soga_push import render_routes_toml
 
     if not token:
         return Response(status_code=444)
@@ -793,18 +793,11 @@ def serve_routes_toml(instance_id: int, token: str = "", session: Session = Depe
     enable_probe = bool(getattr(node, "soga_system_probe", True))
     probe_rules = _node_probe_rules(node)
     routes_data, landings_map = _load_instance_routes_for_push(session, inst.id)
-    source_listen = ""
-    try:
-        source_listen = parse_conf_listen(read_conf(node, inst.folder_name))
-    except Exception:
-        # 读不到 conf 不阻断 routes_url；没 listen 就不写 listen 字段。
-        source_listen = ""
     try:
         toml_text = render_routes_toml(
             routes_data, landings_map,
             enable_system_probe=enable_probe,
             system_probe_rules=probe_rules,
-            source_listen=source_listen,
         )
     except Exception:
         log.exception("serve_routes_toml 渲染失败 instance_id=%s folder=%s", inst.id, inst.folder_name)
