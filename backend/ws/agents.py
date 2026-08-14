@@ -143,7 +143,7 @@ async def node_ws(
     if iface:
         try:
             async with _write_locks[node_id]:
-                await ws.send_text(json.dumps({"type": "set_iface", "iface": iface}))
+                await ws.send_text(json.dumps({"type": "set_iface", "iface": iface or "auto"}))
         except Exception as e:  # noqa: BLE001
             log.warning("send set_iface failed node_id=%s: %s", node_id, e)
 

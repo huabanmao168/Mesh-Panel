@@ -50,7 +50,7 @@ class Node(NodeBase, table=True):
     agent_version: Optional[str] = Field(default=None, description="agent 上报的自己版本")
     agent_iface: Optional[str] = Field(
         default=None,
-        description="探针网卡名，留空 agent 自动探测默认路由网卡",
+        description="探针网卡名；空/auto=自动统计业务网卡并按方向取最大,也可手动指定单网卡",
     )
 
     # SoGa 入口机:系统探活路由开关(默认开,由面板自动注入,用户不可编辑规则)

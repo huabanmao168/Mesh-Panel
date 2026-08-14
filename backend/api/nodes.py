@@ -183,7 +183,7 @@ async def apply_iface(node_id: int, session: Session = Depends(get_session)):
         async with lock:
             await ws.send_text(json.dumps({
                 "type": "set_iface",
-                "iface": node.agent_iface or "",
+                "iface": node.agent_iface or "auto",
             }))
     except Exception as e:
         raise HTTPException(500, f"下发失败: {e}")

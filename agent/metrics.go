@@ -19,26 +19,26 @@ import (
 
 // metricsMsg 是发给主控的 metrics 消息体
 type metricsMsg struct {
-	Type     string  `json:"type"`
-	Ts       int64   `json:"ts"`
-	Iface    string  `json:"iface"`
-	RxBps    uint64  `json:"rx_bps"`
-	TxBps    uint64  `json:"tx_bps"`
-	RxTotal  uint64  `json:"rx_total"`
-	TxTotal  uint64  `json:"tx_total"`
-	CPUPct   float64 `json:"cpu_pct"`
-	CPUModel string  `json:"cpu_model"`
-	CPUCores int     `json:"cpu_cores"`
-	MemUsed   uint64 `json:"mem_used"`
-	MemTotal  uint64 `json:"mem_total"`
-	SwapUsed  uint64 `json:"swap_used"`
-	SwapTotal uint64 `json:"swap_total"`
-	DiskUsed  uint64 `json:"disk_used"`
-	DiskTotal uint64 `json:"disk_total"`
-	TCPConn   uint64 `json:"tcp_conn"`
-	UDPConn   uint64 `json:"udp_conn"`
-	Uptime    int64  `json:"uptime_sec"`
-	OSPretty  string `json:"os_pretty"`
+	Type      string  `json:"type"`
+	Ts        int64   `json:"ts"`
+	Iface     string  `json:"iface"`
+	RxBps     uint64  `json:"rx_bps"`
+	TxBps     uint64  `json:"tx_bps"`
+	RxTotal   uint64  `json:"rx_total"`
+	TxTotal   uint64  `json:"tx_total"`
+	CPUPct    float64 `json:"cpu_pct"`
+	CPUModel  string  `json:"cpu_model"`
+	CPUCores  int     `json:"cpu_cores"`
+	MemUsed   uint64  `json:"mem_used"`
+	MemTotal  uint64  `json:"mem_total"`
+	SwapUsed  uint64  `json:"swap_used"`
+	SwapTotal uint64  `json:"swap_total"`
+	DiskUsed  uint64  `json:"disk_used"`
+	DiskTotal uint64  `json:"disk_total"`
+	TCPConn   uint64  `json:"tcp_conn"`
+	UDPConn   uint64  `json:"udp_conn"`
+	Uptime    int64   `json:"uptime_sec"`
+	OSPretty  string  `json:"os_pretty"`
 }
 
 // 静态 CPU 信息，启动时读一次缓存
@@ -181,7 +181,7 @@ var currentIface atomic.Value // string
 func setIface(name string) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		name = detectDefaultIface()
+		name = "auto"
 	}
 	currentIface.Store(name)
 }
@@ -240,38 +240,92 @@ func listIfaces() ([]string, error) {
 	return names, sc.Err()
 }
 
-// 读 /proc/net/dev 拿指定网卡的累计 rx/tx 字节数
-func readIfaceBytes(name string) (rx, tx uint64, err error) {
+type ifaceBytes struct {
+	Name string
+	Rx   uint64
+	Tx   uint64
+}
+
+// 读 /proc/net/dev 拿所有网卡的累计 rx/tx 字节数
+func readAllIfaceBytes() ([]ifaceBytes, error) {
 	f, err := os.Open("/proc/net/dev")
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
+	var rows []ifaceBytes
 	for sc.Scan() {
 		line := sc.Text()
 		idx := strings.Index(line, ":")
 		if idx <= 0 {
 			continue
 		}
-		if strings.TrimSpace(line[:idx]) != name {
+		name := strings.TrimSpace(line[:idx])
+		if name == "" {
 			continue
 		}
 		fields := strings.Fields(line[idx+1:])
 		if len(fields) < 16 {
-			return 0, 0, fmt.Errorf("malformed /proc/net/dev line")
+			continue
 		}
-		rx, err = strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			return 0, 0, fmt.Errorf("parse rx: %w", err)
+		rx, errRx := strconv.ParseUint(fields[0], 10, 64)
+		tx, errTx := strconv.ParseUint(fields[8], 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
 		}
-		tx, err = strconv.ParseUint(fields[8], 10, 64)
-		if err != nil {
-			return 0, 0, fmt.Errorf("parse tx: %w", err)
+		rows = append(rows, ifaceBytes{Name: name, Rx: rx, Tx: tx})
+	}
+	return rows, sc.Err()
+}
+
+// 读 /proc/net/dev 拿指定网卡的累计 rx/tx 字节数
+func readIfaceBytes(name string) (rx, tx uint64, err error) {
+	rows, err := readAllIfaceBytes()
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, row := range rows {
+		if row.Name == name {
+			return row.Rx, row.Tx, nil
 		}
-		return rx, tx, nil
 	}
 	return 0, 0, fmt.Errorf("iface %s not found", name)
+}
+
+func isBusinessIface(name string) bool {
+	if name == "" || name == "lo" {
+		return false
+	}
+	// 排除本机虚拟/隧道/容器网卡，避免把内循环或 overlay 流量算进业务带宽。
+	excludedPrefixes := []string{
+		"docker", "veth", "br-", "virbr", "cni", "flannel", "kube",
+		"wg", "tun", "tap", "tailscale", "zt", "ifb", "dummy",
+		"gre", "gretap", "ipip", "sit", "vxlan", "lxc", "podman",
+	}
+	for _, p := range excludedPrefixes {
+		if strings.HasPrefix(name, p) {
+			return false
+		}
+	}
+	return true
+}
+
+func readBusinessIfaceBytes() ([]ifaceBytes, error) {
+	rows, err := readAllIfaceBytes()
+	if err != nil {
+		return nil, err
+	}
+	var out []ifaceBytes
+	for _, row := range rows {
+		if isBusinessIface(row.Name) {
+			out = append(out, row)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no business iface found")
+	}
+	return out, nil
 }
 
 // /proc/stat 第一行: cpu user nice system idle iowait irq softirq steal ...
@@ -434,14 +488,16 @@ func readConnState() (tcp, udp uint64) {
 
 // metricsLoop 每 interval 采一次样并通过 send 推出
 // 第一次采样不发（要算 delta）
+// 自动模式统计所有业务网卡，但每个方向取单网卡最大增量，不求和，避免转发机入口+出口重复计数。
 func metricsLoop(done chan struct{}, interval time.Duration, send func(any) error) {
 	loadCPUInfo()
 	loadOSPretty()
 	var (
-		prevRx, prevTx       uint64
-		prevTotal, prevIdle  uint64
-		prevTs               time.Time
-		hasPrev              bool
+		prevRx, prevTx      uint64
+		prevIfaceBytes      map[string]ifaceBytes
+		prevTotal, prevIdle uint64
+		prevTs              time.Time
+		hasPrev             bool
 	)
 
 	t := time.NewTicker(interval)
@@ -453,12 +509,34 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 			return
 		case now := <-t.C:
 			iface := getIface()
-			if iface == "" {
-				iface = detectDefaultIface()
-				setIface(iface)
+			manualIface := strings.TrimSpace(iface) != "" && strings.ToLower(strings.TrimSpace(iface)) != "auto"
+			var (
+				rx, tx     uint64
+				errN       error
+				ifaceRows  []ifaceBytes
+				ifaceLabel string
+			)
+			if manualIface {
+				rx, tx, errN = readIfaceBytes(iface)
+				ifaceLabel = iface
+			} else {
+				ifaceRows, errN = readBusinessIfaceBytes()
+				if errN == nil {
+					names := make([]string, 0, len(ifaceRows))
+					for _, row := range ifaceRows {
+						names = append(names, row.Name)
+						// 自动模式的累计值也按方向取最大，不做多网卡求和，避免转发流量翻倍。
+						if row.Rx > rx {
+							rx = row.Rx
+						}
+						if row.Tx > tx {
+							tx = row.Tx
+						}
+					}
+					ifaceLabel = strings.Join(names, ",")
+				}
 			}
 
-			rx, tx, errN := readIfaceBytes(iface)
 			cpuTotal, cpuIdle, errC := readCPU()
 			memUsed, memTotal, errM := readMem()
 			swapUsed, swapTotal, _ := readSwap()
@@ -475,11 +553,30 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 			if hasPrev {
 				dt := now.Sub(prevTs).Seconds()
 				if dt > 0 {
-					if rx >= prevRx {
-						rxBps = uint64(float64(rx-prevRx) * 8 / dt)
-					}
-					if tx >= prevTx {
-						txBps = uint64(float64(tx-prevTx) * 8 / dt)
+					if manualIface {
+						if rx >= prevRx {
+							rxBps = uint64(float64(rx-prevRx) * 8 / dt)
+						}
+						if tx >= prevTx {
+							txBps = uint64(float64(tx-prevTx) * 8 / dt)
+						}
+					} else if prevIfaceBytes != nil {
+						// 自动多业务网卡模式：每个方向取单网卡最大增量，避免入口+出口求和把同一份转发流量算两遍。
+						var maxRxDelta, maxTxDelta uint64
+						for _, row := range ifaceRows {
+							prev, ok := prevIfaceBytes[row.Name]
+							if !ok {
+								continue
+							}
+							if row.Rx >= prev.Rx && row.Rx-prev.Rx > maxRxDelta {
+								maxRxDelta = row.Rx - prev.Rx
+							}
+							if row.Tx >= prev.Tx && row.Tx-prev.Tx > maxTxDelta {
+								maxTxDelta = row.Tx - prev.Tx
+							}
+						}
+						rxBps = uint64(float64(maxRxDelta) * 8 / dt)
+						txBps = uint64(float64(maxTxDelta) * 8 / dt)
 					}
 				}
 				dTotal := cpuTotal - prevTotal
@@ -495,16 +592,16 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 				}
 
 				_ = send(metricsMsg{
-					Type:     "metrics",
-					Ts:       now.Unix(),
-					Iface:    iface,
-					RxBps:    rxBps,
-					TxBps:    txBps,
-					RxTotal:  rx,
-					TxTotal:  tx,
-					CPUPct:   cpuPct,
-					CPUModel: cpuModelOnce,
-					CPUCores: cpuCoresOnce,
+					Type:      "metrics",
+					Ts:        now.Unix(),
+					Iface:     ifaceLabel,
+					RxBps:     rxBps,
+					TxBps:     txBps,
+					RxTotal:   rx,
+					TxTotal:   tx,
+					CPUPct:    cpuPct,
+					CPUModel:  cpuModelOnce,
+					CPUCores:  cpuCoresOnce,
 					MemUsed:   memUsed,
 					MemTotal:  memTotal,
 					SwapUsed:  swapUsed,
@@ -519,7 +616,17 @@ func metricsLoop(done chan struct{}, interval time.Duration, send func(any) erro
 			}
 			// 网卡读失败不更新 prev,避免下次恢复后算出假尖峰
 			if errN == nil {
-				prevRx, prevTx = rx, tx
+				if manualIface {
+					prevRx, prevTx = rx, tx
+					prevIfaceBytes = nil
+				} else {
+					cur := make(map[string]ifaceBytes, len(ifaceRows))
+					for _, row := range ifaceRows {
+						cur[row.Name] = row
+					}
+					prevIfaceBytes = cur
+					prevRx, prevTx = rx, tx
+				}
 			}
 			if errC == nil {
 				prevTotal, prevIdle = cpuTotal, cpuIdle
